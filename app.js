@@ -1049,7 +1049,7 @@ window.APP = (function () {
     try {
       const sp = new URLSearchParams(location.search);
       const v = sp.get('view');
-      if (v && ['overview', 'items', 'queue', 'data'].includes(v)) S.view = v;
+      if (v && ['overview', 'items', 'queue', 'barcode', 'data'].includes(v)) S.view = v;
       if (sp.get('add')) setTimeout(() => openForm(null), 300);
     } catch (e) { void e; }
     try {
