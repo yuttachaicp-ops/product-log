@@ -13,6 +13,7 @@ window.APP = (function () {
     query: '',
     fEntry: 'all',
     fPhoto: 'all',
+    fBarcode: 'all',
     sort: 'updated',
     // ฟอร์มที่กำลังแก้
     edit: null,          // เอกสารสินค้า (null = ปิดฟอร์ม)
@@ -221,25 +222,50 @@ window.APP = (function () {
   /** เปิดสแกนเพื่อกรอกลงช่องบาร์โค้ดในฟอร์ม */
   function scanIntoField() {
     SCAN.open('สแกนบาร์โค้ดสินค้า', async (value) => {
+      const cur = String(S.edit.barcode || '').trim();
+
+      // เคส "สินค้าเปลี่ยนเลขบาร์โค้ดใหม่" — มีเลขเดิมอยู่แล้วและเลขที่สแกนไม่เหมือนกัน
+      if (cur && cur !== value) {
+        const keep = confirm(
+          `เลขที่สแกนได้ไม่ตรงกับเลขเดิมในรายการนี้\n\n` +
+          `เลขเดิม: ${cur}\nเลขใหม่: ${value}\n\n` +
+          `กด "ตกลง" = เปลี่ยนเป็นเลขใหม่ และเก็บเลขเดิมไว้ให้ยิงหาเจอได้\n` +
+          `กด "ยกเลิก" = ไม่เปลี่ยนอะไร`
+        );
+        if (!keep) return;
+        const olds = SCHEMA.codes(S.edit.barcodeOld);
+        if (!olds.includes(cur)) olds.push(cur);
+        S.edit.barcodeOld = olds.join(', ');
+        S.edit.barcodeStatus = 'changed';
+        S.edit.barcode = value;
+        S.dirty = true;
+        renderForm(null);
+        toast(`เปลี่ยนเป็น ${value} · เก็บเลขเดิม ${cur} ไว้แล้ว`);
+        return;
+      }
+
       S.edit.barcode = value;
+      if (S.edit.barcodeStatus === 'pending') S.edit.barcodeStatus = 'ok';
       S.dirty = true;
-      const el = $('#dBody [data-k="barcode"]');
-      if (el) el.value = value;
-      const dup = S.products.find((p) => p.barcode && p.barcode === value && p.id !== S.edit.id);
-      if (dup) toast(`⚠ บาร์โค้ดนี้มีอยู่แล้ว: ${dup.code || ''} ${dup.name || ''}`, true);
-      else toast('อ่านได้: ' + value);
+      renderForm(null);
+      const hit = findByCode(value);
+      if (hit && hit.product.id !== S.edit.id) {
+        toast(`⚠ เลขนี้ใช้อยู่กับ ${hit.product.code || ''} ${hit.product.name || ''}${hit.viaOld ? ' (เป็นเลขเดิมของรายการนั้น)' : ''}`, true);
+      } else toast('อ่านได้: ' + value);
     });
   }
 
   /** เปิดสแกนเพื่อค้นหาสินค้าที่บันทึกไว้แล้ว */
   function scanToSearch() {
     SCAN.open('สแกนเพื่อค้นหาสินค้า', (value) => {
-      const hit = S.products.find((p) => p.barcode === value);
+      const hit = findByCode(value);
       if (hit) {
-        S.view = 'items'; S.fEntry = 'all'; S.fPhoto = 'all'; S.query = value;
+        S.view = 'items'; S.fEntry = 'all'; S.fPhoto = 'all'; S.fBarcode = 'all'; S.query = value;
         render();
-        toast('พบแล้ว: ' + (hit.name || hit.code));
-        openForm(hit);
+        if (hit.viaOld) {
+          toast(`นี่คือบาร์โค้ดเดิมของ ${hit.product.name || hit.product.code} · เลขที่ใช้อยู่ตอนนี้คือ ${hit.product.barcode || '(ยังไม่มี)'}`);
+        } else toast('พบแล้ว: ' + (hit.product.name || hit.product.code));
+        openForm(hit.product);
       } else {
         const d = SCHEMA.blank();
         d.barcode = value;
@@ -264,13 +290,34 @@ window.APP = (function () {
   }
 
   function counts() {
-    const c = { all: S.products.length, pending: 0, shot: 0, uploaded: 0, na: 0, noimg: 0, replace: 0, new: 0, restock: 0 };
+    const c = {
+      all: S.products.length, pending: 0, shot: 0, uploaded: 0, na: 0, noimg: 0,
+      replace: 0, new: 0, restock: 0,
+      bcOk: 0, bcChanged: 0, bcNolabel: 0, bcPending: 0, bcTodo: 0,
+    };
     S.products.forEach((p) => {
       c[p.photoStatus] = (c[p.photoStatus] || 0) + 1;
       c[p.entryType] = (c[p.entryType] || 0) + 1;
       if (!p.imageCount) c.noimg++;
+      const bs = p.barcodeStatus || 'ok';
+      if (bs === 'changed') c.bcChanged++;
+      else if (bs === 'nolabel') c.bcNolabel++;
+      else if (bs === 'pending') c.bcPending++;
+      else c.bcOk++;
+      if (SCHEMA.barcodeTodo(p)) c.bcTodo++;
     });
     return c;
+  }
+
+  /** หาสินค้าจากเลขบาร์โค้ด — เจอทั้งเลขที่ใช้อยู่และเลขเดิม */
+  function findByCode(value) {
+    const v = String(value || '').trim();
+    if (!v) return null;
+    const exact = S.products.find((p) => String(p.barcode || '').trim() === v);
+    if (exact) return { product: exact, viaOld: false };
+    const old = S.products.find((p) => SCHEMA.codes(p.barcodeOld).includes(v));
+    if (old) return { product: old, viaOld: true };
+    return null;
   }
 
   function filtered() {
@@ -279,8 +326,10 @@ window.APP = (function () {
       if (S.fEntry !== 'all' && p.entryType !== S.fEntry) return false;
       if (S.fPhoto === 'noimg') { if (p.imageCount) return false; }
       else if (S.fPhoto !== 'all' && p.photoStatus !== S.fPhoto) return false;
+      if (S.fBarcode === 'todo') { if (!SCHEMA.barcodeTodo(p)) return false; }
+      else if (S.fBarcode !== 'all' && (p.barcodeStatus || 'ok') !== S.fBarcode) return false;
       if (!q) return true;
-      return ['code', 'barcode', 'name', 'brand', 'model', 'replaces', 'note']
+      return ['code', 'barcode', 'barcodeOld', 'barcodeNote', 'name', 'brand', 'model', 'replaces', 'note']
         .map((k) => String(p[k] || '')).join(' ').toLowerCase().includes(q);
     });
     const cmp = {
@@ -299,11 +348,18 @@ window.APP = (function () {
     const c = counts();
     $('#pillItems').textContent = nf(c.all);
     $('#pillQueue').textContent = nf(c.pending);
+    const pb = $('#pillBarcode');
+    if (pb) {
+      const n = c.bcTodo + c.bcChanged + c.bcNolabel;
+      pb.textContent = nf(n);
+      pb.classList.toggle('hot', c.bcTodo > 0);
+    }
     $$('#nav button').forEach((b) => b.setAttribute('aria-current', String(b.dataset.view === S.view)));
     const m = $('#main');
     if (S.view === 'overview') m.innerHTML = viewOverview(c);
     else if (S.view === 'items') m.innerHTML = viewItems();
     else if (S.view === 'queue') m.innerHTML = viewQueue();
+    else if (S.view === 'barcode') m.innerHTML = viewBarcode();
     else m.innerHTML = viewData();
     if (S.view === 'data') fillDataStats();
     bindMain();
@@ -312,6 +368,13 @@ window.APP = (function () {
   function statusTag(p) {
     const t = SCHEMA.tone(p.photoStatus);
     return `<span class="tag ${t}">${esc(SCHEMA.label(SCHEMA.PHOTO_STATUS, p.photoStatus))}</span>`;
+  }
+  function barcodeTag(p) {
+    const bs = p.barcodeStatus || 'ok';
+    if (bs === 'ok') {
+      return SCHEMA.barcodeTodo(p) ? `<span class="tag warn">ยังไม่มีบาร์โค้ด</span>` : '';
+    }
+    return `<span class="tag ${SCHEMA.toneIn(SCHEMA.BARCODE_STATUS, bs)}">${esc(SCHEMA.label(SCHEMA.BARCODE_STATUS, bs))}</span>`;
   }
   function entryTag(p) {
     if (p.entryType === 'replace') return `<span class="tag dark">แทนรุ่นเดิม</span>`;
@@ -337,12 +400,15 @@ window.APP = (function () {
           ${p.model ? `<span>รุ่น ${esc(p.model)}</span>` : ''}
           <span>เข้า ${fmtDate(p.arrivalDate)}</span>
         </div>
-        ${p.barcode ? `<div class="meta" style="font-variant-numeric:tabular-nums;color:var(--muted)">
-          <span title="บาร์โค้ด">▍▍▎ ${esc(p.barcode)}</span></div>` : ''}
+        ${p.barcode || p.barcodeOld ? `<div class="meta bc-line">
+          ${p.barcode ? `<span title="บาร์โค้ดที่ใช้อยู่">▍▍▎ ${esc(p.barcode)}</span>` : ''}
+          ${SCHEMA.codes(p.barcodeOld).length ? `<span class="bc-old" title="บาร์โค้ดเดิม ยิงแล้วยังหาเจอ">เดิม ${esc(SCHEMA.codes(p.barcodeOld).join(', '))}</span>` : ''}
+        </div>` : ''}
+        ${p.barcodeNote ? `<div class="repl">บาร์โค้ด: ${esc(p.barcodeNote)}</div>` : ''}
         ${p.entryType === 'replace' && p.replaces ? `<div class="repl">แทนรุ่นเดิม → <b>${esc(p.replaces)}</b></div>` : ''}
         ${p.note ? `<div class="meta" style="color:var(--muted)">${esc(p.note.slice(0, 90))}${p.note.length > 90 ? '…' : ''}</div>` : ''}
         <div class="foot">
-          ${entryTag(p)}${statusTag(p)}
+          ${entryTag(p)}${statusTag(p)}${barcodeTag(p)}
           <span style="flex:1"></span>
           <button class="btn btn-sm" data-act="edit">แก้ไข</button>
         </div>
@@ -353,8 +419,9 @@ window.APP = (function () {
   function viewItems() {
     const list = filtered();
     const c = counts();
+    const cur = { entry: S.fEntry, photo: S.fPhoto, barcode: S.fBarcode };
     const chip = (group, key, label, n) =>
-      `<button class="chip" data-chip="${group}" data-key="${key}" aria-pressed="${(group === 'entry' ? S.fEntry : S.fPhoto) === key}">${label}${n !== undefined ? ` · ${nf(n)}` : ''}</button>`;
+      `<button class="chip" data-chip="${group}" data-key="${key}" aria-pressed="${cur[group] === key}">${label}${n !== undefined ? ` · ${nf(n)}` : ''}</button>`;
     return `
     <p class="sec-label">สินค้าที่บันทึกไว้ (${nf(c.all)} รายการ)</p>
     <div class="toolbar">
@@ -385,6 +452,12 @@ window.APP = (function () {
       ${chip('photo', 'shot', 'ถ่ายแล้ว', c.shot)}
       ${chip('photo', 'uploaded', 'อัปโหลดแล้ว', c.uploaded)}
       ${chip('photo', 'noimg', 'ยังไม่มีรูปแนบ', c.noimg)}
+    </div>
+    <div class="chips">
+      ${chip('barcode', 'all', 'ทุกสถานะบาร์โค้ด')}
+      ${chip('barcode', 'changed', 'เปลี่ยนเลขใหม่', c.bcChanged)}
+      ${chip('barcode', 'nolabel', 'ติดบาร์โค้ดไม่ได้', c.bcNolabel)}
+      ${chip('barcode', 'todo', 'ยังไม่มีเลข', c.bcTodo)}
     </div>
     ${list.length
         ? `<div class="list">${list.map(cardHTML).join('')}</div>`
@@ -427,6 +500,53 @@ window.APP = (function () {
     `;
   }
 
+  function brow(p, extra, actions) {
+    const cov = S.covers[p.id];
+    return `
+    <div class="qrow" data-id="${p.id}">
+      <div class="q-thumb" data-act="open">${cov ? `<img loading="lazy" src="${urlFor('t' + cov.id, cov.thumb)}">` : '📷'}</div>
+      <div class="q-main">
+        <h4>${esc(p.name || '(ไม่มีชื่อ)')} <span style="color:var(--muted);font-weight:600;font-size:12.5px">${esc(p.code || '')}</span></h4>
+        <p>${extra}</p>
+      </div>
+      <div class="q-act">${actions}</div>
+    </div>`;
+  }
+
+  function viewBarcode() {
+    const changed = S.products.filter((p) => (p.barcodeStatus || 'ok') === 'changed' || SCHEMA.codes(p.barcodeOld).length)
+      .sort((a, b) => String(b.barcodeChangedAt || b.updatedAt).localeCompare(String(a.barcodeChangedAt || a.updatedAt)));
+    const nolabel = S.products.filter((p) => p.barcodeStatus === 'nolabel')
+      .sort((a, b) => String(a.code || '').localeCompare(String(b.code || ''), 'th', { numeric: true }));
+    const todo = S.products.filter((p) => SCHEMA.barcodeTodo(p))
+      .sort((a, b) => String(a.arrivalDate || '9999').localeCompare(String(b.arrivalDate || '9999')));
+    const edit = `<button class="btn btn-sm" data-act="edit">แก้ไข</button>`;
+    const scanBtn = `<button class="btn btn-primary btn-sm" data-act="rescan">สแกนเลขใหม่</button>`;
+
+    return `
+    <p class="sec-label">เปลี่ยนเลขบาร์โค้ดใหม่ (${nf(changed.length)}) — ยิงเลขเดิมก็ยังหาเจอ</p>
+    ${changed.length ? `<div class="qlist">${changed.map((p) => brow(p,
+      `<span class="bc-flow"><b>เดิม ${esc(SCHEMA.codes(p.barcodeOld).join(', ') || '—')}</b> → <b class="now">${esc(p.barcode || '(ยังไม่มี)')}</b></span>` +
+      (p.barcodeChangedAt ? ` · เปลี่ยน ${fmtDate(p.barcodeChangedAt)}` : ''),
+      scanBtn + edit)).join('')}</div>`
+      : `<div class="empty">ยังไม่มีรายการที่เปลี่ยนเลขบาร์โค้ด</div>`}
+
+    <p class="sec-label" style="margin-top:30px">ติดบาร์โค้ดไม่ได้ (${nf(nolabel.length)}) — ต้องใช้วิธีอื่น</p>
+    ${nolabel.length ? `<div class="qlist">${nolabel.map((p) => brow(p,
+      (p.barcodeNote ? esc(p.barcodeNote) : '<span style="color:var(--warn)">ยังไม่ได้ระบุวิธีจัดการ — กดแก้ไขเพื่อใส่</span>') +
+      (p.barcode ? ` · เลขที่ใช้ ${esc(p.barcode)}` : ' · ไม่มีเลข'),
+      edit)).join('')}</div>`
+      : `<div class="empty">ไม่มีรายการที่ติดบาร์โค้ดไม่ได้</div>`}
+
+    <p class="sec-label" style="margin-top:30px">ยังไม่มีเลขบาร์โค้ด (${nf(todo.length)})</p>
+    ${todo.length ? `<div class="qlist">${todo.map((p) => brow(p,
+      `${[p.brand, p.model && 'รุ่น ' + p.model, 'เข้า ' + fmtDate(p.arrivalDate)].filter(Boolean).map(esc).join(' · ')}`,
+      `<button class="btn btn-primary btn-sm" data-act="rescan">สแกนใส่เลข</button>
+       <button class="btn btn-sm" data-act="nolabel">ติดไม่ได้</button>`)).join('')}</div>`
+      : `<div class="empty">ทุกรายการมีเลขบาร์โค้ดครบแล้ว 🎉</div>`}
+    `;
+  }
+
   function viewOverview(c) {
     const recent = S.products.slice().sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, 6);
     const oldest = S.products.filter((p) => p.photoStatus === 'pending')
@@ -440,6 +560,9 @@ window.APP = (function () {
       <div class="stat light clickable" data-go="items" data-entry="all" data-photo="shot"><b>${nf(c.shot)}</b><span>ถ่ายแล้ว รออัปโหลด</span></div>
       <div class="stat light clickable" data-go="items" data-entry="replace" data-photo="all"><b>${nf(c.replace)}</b><span>มาแทนรุ่นเดิม</span></div>
       <div class="stat light clickable" data-go="items" data-entry="all" data-photo="noimg"><b>${nf(c.noimg)}</b><span>ยังไม่มีรูปแนบ</span></div>
+      <div class="stat light clickable" data-go="barcode"><b>${nf(c.bcTodo)}</b><span>ยังไม่มีบาร์โค้ด</span></div>
+      <div class="stat light clickable" data-go="barcode"><b>${nf(c.bcChanged)}</b><span>เปลี่ยนเลขบาร์โค้ด</span></div>
+      <div class="stat light clickable" data-go="barcode"><b>${nf(c.bcNolabel)}</b><span>ติดบาร์โค้ดไม่ได้</span></div>
     </div>
     ${od !== null && od >= 7 ? `<div class="dark-note" style="margin-bottom:22px"><span class="t">มีของค้างถ่ายนาน ${od} วัน</span>${esc(oldest.code || '')} · ${esc(oldest.name || '')} — เข้ามาตั้งแต่ ${fmtDate(oldest.arrivalDate)} <button class="btn btn-sm" data-go="queue" style="margin-left:8px">ดูคิวถ่ายรูป</button></div>` : ''}
 
@@ -535,6 +658,10 @@ window.APP = (function () {
       </div>
       <div class="prog" id="prog"><i></i></div>
       <div class="imgs" id="imgs"></div>
+      ${(d.barcodeHistory || []).length ? `
+        <p class="sec-label" style="margin:18px 0 8px">ประวัติการเปลี่ยนเลขบาร์โค้ด</p>
+        <ul class="bc-hist">${d.barcodeHistory.slice().reverse().map((h) =>
+        `<li><span>${esc(h.from)}</span> → <b>${esc(h.to)}</b><em>${fmtDate(h.at)}</em></li>`).join('')}</ul>` : ''}
       ${d.id ? `<p class="hint" style="margin-top:16px">สร้างเมื่อ ${fmtDate(d.createdAt)} · แก้ไขล่าสุด ${fmtDate(d.updatedAt)}</p>` : ''}
     `;
     renderImages();
@@ -585,11 +712,27 @@ window.APP = (function () {
     const d = S.edit;
     const errors = SCHEMA.validate(d);
     if (Object.keys(errors).length) { renderForm(errors); toast('กรอกข้อมูลที่จำเป็นให้ครบ', true); return; }
-    // เตือนถ้าบาร์โค้ดซ้ำกับรายการอื่น (ยังบันทึกได้ถ้ายืนยัน — บางร้านใช้บาร์โค้ดเดียวหลายไซซ์)
     const bc = String(d.barcode || '').trim();
+
+    // ถ้าเลขบาร์โค้ดเปลี่ยนจากที่บันทึกไว้ → เก็บเลขเดิม + จดประวัติให้อัตโนมัติ
+    const prev = d.id ? S.products.find((p) => p.id === d.id) : null;
+    const prevBc = prev ? String(prev.barcode || '').trim() : '';
+    if (prevBc && bc && prevBc !== bc) {
+      const olds = SCHEMA.codes(d.barcodeOld);
+      if (!olds.includes(prevBc)) olds.push(prevBc);
+      d.barcodeOld = olds.join(', ');
+      d.barcodeHistory = (prev.barcodeHistory || []).concat([{ from: prevBc, to: bc, at: new Date().toISOString() }]);
+      d.barcodeChangedAt = new Date().toISOString();
+      if (!d.barcodeStatus || d.barcodeStatus === 'ok') d.barcodeStatus = 'changed';
+    }
+
+    // เตือนถ้าบาร์โค้ดซ้ำกับรายการอื่น (ยังบันทึกได้ถ้ายืนยัน — บางร้านใช้บาร์โค้ดเดียวหลายไซซ์)
     if (bc) {
-      const dup = S.products.find((p) => p.barcode && p.barcode.trim() === bc && p.id !== d.id);
-      if (dup && !confirm(`บาร์โค้ด ${bc} ถูกใช้กับ "${dup.code || ''} ${dup.name || ''}" อยู่แล้ว\nบันทึกซ้ำต่อไหม?`)) return;
+      const hit = findByCode(bc);
+      if (hit && hit.product.id !== d.id) {
+        const dup = hit.product;
+        if (!confirm(`บาร์โค้ด ${bc} ${hit.viaOld ? 'เป็นเลขเดิมของ' : 'ถูกใช้กับ'} "${dup.code || ''} ${dup.name || ''}" อยู่แล้ว\nบันทึกซ้ำต่อไหม?`)) return;
+      }
     }
     const btn = $('#dSave'); btn.disabled = true; btn.textContent = 'กำลังบันทึก…';
     try {
@@ -719,7 +862,10 @@ window.APP = (function () {
     if (bss) bss.addEventListener('click', scanToSearch);
 
     $$('#main [data-chip]').forEach((b) => b.addEventListener('click', () => {
-      if (b.dataset.chip === 'entry') S.fEntry = b.dataset.key; else S.fPhoto = b.dataset.key;
+      const g = b.dataset.chip;
+      if (g === 'entry') S.fEntry = b.dataset.key;
+      else if (g === 'barcode') S.fBarcode = b.dataset.key;
+      else S.fPhoto = b.dataset.key;
       render();
     }));
 
@@ -744,6 +890,15 @@ window.APP = (function () {
         const act = actEl.dataset.act;
         if (act === 'edit') openForm(p);
         else if (act === 'addphoto') openForm(p, true);
+        else if (act === 'rescan') { openForm(p); setTimeout(scanIntoField, 320); }
+        else if (act === 'nolabel') {
+          const note = prompt(`"${p.name || p.code}" ติดบาร์โค้ดไม่ได้\nจะจัดการยังไง? (เว้นว่างได้)`,
+            p.barcodeNote || 'ติดที่กล่องแทน');
+          if (note === null) return;
+          await DB.saveProduct(Object.assign({}, p, { barcodeStatus: 'nolabel', barcodeNote: note }));
+          await reload();
+          toast('บันทึกว่าติดบาร์โค้ดไม่ได้แล้ว');
+        }
         else if (act === 'mark') {
           await DB.setPhotoStatus(id, actEl.dataset.status);
           await reload();

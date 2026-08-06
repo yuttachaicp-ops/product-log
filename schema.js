@@ -12,6 +12,14 @@ window.SCHEMA = (function () {
     { key: 'na',       label: 'ไม่ต้องถ่าย',  short: 'ไม่ต้อง',  tone: 'mute' },
   ];
 
+  /* ---------- สถานะบาร์โค้ด ---------- */
+  const BARCODE_STATUS = [
+    { key: 'ok',      label: 'ใช้งานได้ปกติ',      short: 'ปกติ',        tone: 'mute' },
+    { key: 'changed', label: 'เปลี่ยนเลขใหม่',      short: 'เปลี่ยนเลข',  tone: 'info' },
+    { key: 'nolabel', label: 'ติดบาร์โค้ดไม่ได้',   short: 'ติดไม่ได้',   tone: 'warn' },
+    { key: 'pending', label: 'รอทำ/รอเลขบาร์โค้ด',  short: 'รอเลข',       tone: 'warn' },
+  ];
+
   /* ---------- ประเภทการเข้าสินค้า ---------- */
   const ENTRY_TYPE = [
     { key: 'new',     label: 'สินค้าเข้าใหม่',        short: 'เข้าใหม่' },
@@ -23,8 +31,15 @@ window.SCHEMA = (function () {
   // type: text | textarea | date | select | number
   const FIELDS = [
     { key: 'code',      label: 'รหัสสินค้า / SKU', type: 'text',     required: true,  placeholder: 'เช่น PRT-1042', col: 1 },
-    { key: 'barcode',   label: 'บาร์โค้ด',          type: 'text',     required: false, placeholder: 'สแกนหรือพิมพ์ตัวเลข',
+    { key: 'barcode',   label: 'บาร์โค้ด (เลขที่ใช้อยู่)', type: 'text', required: false, placeholder: 'สแกนหรือพิมพ์ตัวเลข',
       col: 1, scan: true, inputMode: 'numeric' },
+    { key: 'barcodeStatus', label: 'สถานะบาร์โค้ด', type: 'select', required: true, options: BARCODE_STATUS, default: 'ok', col: 1 },
+    { key: 'barcodeOld', label: 'บาร์โค้ดเดิม (ยิงแล้วยังหาเจอ)', type: 'text', required: false,
+      placeholder: 'ใส่ได้หลายเลข คั่นด้วยจุลภาค ,', col: 2, inputMode: 'numeric',
+      showIf: (d) => d.barcodeStatus === 'changed' || String(d.barcodeOld || '').trim() !== '' },
+    { key: 'barcodeNote', label: 'หมายเหตุบาร์โค้ด', type: 'text', required: false,
+      placeholder: 'เช่น ติดที่กล่องแทน / ใช้ป้ายแขวน / ยิงจากใบราคา', col: 2,
+      showIf: (d) => d.barcodeStatus === 'nolabel' || d.barcodeStatus === 'pending' || String(d.barcodeNote || '').trim() !== '' },
     { key: 'name',      label: 'ชื่อสินค้า',        type: 'text',     required: true,  placeholder: 'ชื่อที่ใช้เรียกในร้าน', col: 2 },
     { key: 'brand',     label: 'แบรนด์',           type: 'text',     required: false, placeholder: '', col: 1, datalist: 'brands' },
     { key: 'model',     label: 'รุ่น',              type: 'text',     required: false, placeholder: '', col: 1 },
@@ -51,6 +66,10 @@ window.SCHEMA = (function () {
     const hit = PHOTO_STATUS.find((x) => x.key === key);
     return hit ? hit.tone : 'mute';
   }
+  function toneIn(list, key) {
+    const hit = list.find((x) => x.key === key);
+    return hit ? (hit.tone || 'mute') : 'mute';
+  }
 
   /* ---------- เอกสารเปล่า ---------- */
   function blank() {
@@ -70,5 +89,26 @@ window.SCHEMA = (function () {
     return errors;
   }
 
-  return { FIELDS, byKey, PHOTO_STATUS, ENTRY_TYPE, blank, validate, label, shortLabel, tone };
+  /* ---------- แยกเลขบาร์โค้ดหลายเลขออกเป็นลิสต์ ---------- */
+  function codes(str) {
+    return String(str || '').split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean);
+  }
+
+  /** ทุกเลขที่ยิงแล้วควรเจอสินค้านี้ (เลขที่ใช้อยู่ + เลขเดิมทั้งหมด) */
+  function allCodes(d) {
+    const out = [];
+    const cur = String(d.barcode || '').trim();
+    if (cur) out.push(cur);
+    codes(d.barcodeOld).forEach((c) => { if (!out.includes(c)) out.push(c); });
+    return out;
+  }
+
+  /** ต้องจัดการเรื่องบาร์โค้ดไหม (ยังไม่มีเลข และไม่ได้ระบุว่าติดไม่ได้) */
+  function barcodeTodo(d) {
+    if (d.barcodeStatus === 'pending') return true;
+    if (d.barcodeStatus === 'nolabel') return false;
+    return !String(d.barcode || '').trim();
+  }
+
+  return { FIELDS, byKey, PHOTO_STATUS, ENTRY_TYPE, BARCODE_STATUS, blank, validate, label, shortLabel, tone, toneIn, codes, allCodes, barcodeTodo };
 })();
