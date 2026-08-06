@@ -23,6 +23,8 @@ window.SCHEMA = (function () {
   // type: text | textarea | date | select | number
   const FIELDS = [
     { key: 'code',      label: 'รหัสสินค้า / SKU', type: 'text',     required: true,  placeholder: 'เช่น PRT-1042', col: 1 },
+    { key: 'barcode',   label: 'บาร์โค้ด',          type: 'text',     required: false, placeholder: 'สแกนหรือพิมพ์ตัวเลข',
+      col: 1, scan: true, inputMode: 'numeric' },
     { key: 'name',      label: 'ชื่อสินค้า',        type: 'text',     required: true,  placeholder: 'ชื่อที่ใช้เรียกในร้าน', col: 2 },
     { key: 'brand',     label: 'แบรนด์',           type: 'text',     required: false, placeholder: '', col: 1, datalist: 'brands' },
     { key: 'model',     label: 'รุ่น',              type: 'text',     required: false, placeholder: '', col: 1 },

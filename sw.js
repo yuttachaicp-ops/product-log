@@ -1,7 +1,7 @@
 /* sw.js — ทำให้เปิดใช้ออฟไลน์ได้ และดึงเวอร์ชันใหม่ให้อัตโนมัติ
  * เวลาแก้โค้ด: เปลี่ยนเลข CACHE ด้านล่างทุกครั้ง แล้วผู้ใช้จะได้ของใหม่
  */
-const CACHE = 'prathan-product-log-v1';
+const CACHE = 'prathan-product-log-v2';
 const SHELL = [
   './',
   './index.html',

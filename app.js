@@ -125,6 +125,130 @@ window.APP = (function () {
     };
   }
 
+  /* ================= สแกนบาร์โค้ดด้วยกล้อง =================
+   * ใช้ BarcodeDetector ที่ติดมากับเบราว์เซอร์ (Chrome บน Android / ChromeOS / macOS)
+   * ถ้าเครื่องไม่รองรับ จะอธิบายให้ผู้ใช้ทราบและให้พิมพ์เองแทน — ไม่โหลดไลบรารีจากภายนอก
+   */
+  const SCAN = {
+    FORMATS: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf', 'codabar', 'qr_code'],
+    stream: null, timer: null, onResult: null, running: false,
+
+    supported() { return typeof window.BarcodeDetector === 'function'; },
+
+    async open(title, onResult) {
+      SCAN.onResult = onResult;
+      const ov = $('#scanOv');
+      $('#scanTitle').textContent = title || 'สแกนบาร์โค้ด';
+      ov.classList.remove('err');
+      $('#scanErr').innerHTML = '';
+      ov.classList.add('on');
+
+      if (!SCAN.supported()) {
+        return SCAN.fail('เครื่องนี้ยังสแกนด้วยกล้องไม่ได้',
+          'เบราว์เซอร์ที่ใช้อยู่ไม่มีตัวอ่านบาร์โค้ดในตัว (ปกติใช้ได้บน <b>Chrome บนมือถือ Android</b>)<br>' +
+          'บนคอมพิวเตอร์แนะนำใช้เครื่องสแกนบาร์โค้ดแบบ USB — มันทำงานเหมือนคีย์บอร์ด คลิกที่ช่องบาร์โค้ดแล้วยิงได้เลย');
+      }
+      try {
+        SCAN.stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false,
+        });
+      } catch (e) {
+        const denied = /NotAllowed|Permission/i.test(e.name + e.message);
+        return SCAN.fail(denied ? 'ยังไม่ได้อนุญาตให้ใช้กล้อง' : 'เปิดกล้องไม่ได้',
+          denied
+            ? 'กดไอคอนกล้อง (หรือรูปแม่กุญแจ) ที่แถบที่อยู่เว็บ → อนุญาตกล้อง → แล้วลองสแกนอีกครั้ง'
+            : 'ข้อความจากเบราว์เซอร์: ' + esc(e.message));
+      }
+      const vid = $('#scanVid');
+      vid.srcObject = SCAN.stream;
+      try { await vid.play(); } catch (e) { void e; }
+
+      let det;
+      try {
+        let formats = SCAN.FORMATS;
+        if (window.BarcodeDetector.getSupportedFormats) {
+          const avail = await window.BarcodeDetector.getSupportedFormats();
+          const hit = SCAN.FORMATS.filter((f) => avail.includes(f));
+          if (hit.length) formats = hit;
+        }
+        det = new window.BarcodeDetector({ formats });
+      } catch (e) {
+        return SCAN.fail('เริ่มตัวอ่านบาร์โค้ดไม่สำเร็จ', esc(e.message));
+      }
+
+      SCAN.running = true;
+      let misses = 0;
+      SCAN.timer = setInterval(async () => {
+        if (!SCAN.running) return;
+        try {
+          const hits = await det.detect(vid);
+          if (hits && hits.length) {
+            const value = String(hits[0].rawValue || '').trim();
+            if (value) {
+              if (navigator.vibrate) { try { navigator.vibrate(60); } catch (e) { void e; } }
+              const cb = SCAN.onResult;
+              SCAN.close();
+              if (cb) cb(value, hits[0].format);
+            }
+          } else if (++misses === 60) {
+            toast('ยังอ่านไม่ได้ — ลองขยับระยะหรือเพิ่มแสงดูครับ');
+          }
+        } catch (e) { void e; }
+      }, 220);
+    },
+
+    fail(title, html) {
+      const ov = $('#scanOv');
+      ov.classList.add('err');
+      $('#scanErr').innerHTML =
+        `<b>${esc(title)}</b>${html}<div class="row">
+           <button class="btn btn-primary btn-sm" data-s="manual">พิมพ์เองแทน</button>
+           <button class="btn btn-sm" data-s="close">ปิด</button></div>`;
+    },
+
+    close() {
+      SCAN.running = false;
+      if (SCAN.timer) { clearInterval(SCAN.timer); SCAN.timer = null; }
+      if (SCAN.stream) { SCAN.stream.getTracks().forEach((t) => t.stop()); SCAN.stream = null; }
+      const vid = $('#scanVid');
+      if (vid) vid.srcObject = null;
+      $('#scanOv').classList.remove('on', 'err');
+      SCAN.onResult = null;
+    },
+  };
+
+  /** เปิดสแกนเพื่อกรอกลงช่องบาร์โค้ดในฟอร์ม */
+  function scanIntoField() {
+    SCAN.open('สแกนบาร์โค้ดสินค้า', async (value) => {
+      S.edit.barcode = value;
+      S.dirty = true;
+      const el = $('#dBody [data-k="barcode"]');
+      if (el) el.value = value;
+      const dup = S.products.find((p) => p.barcode && p.barcode === value && p.id !== S.edit.id);
+      if (dup) toast(`⚠ บาร์โค้ดนี้มีอยู่แล้ว: ${dup.code || ''} ${dup.name || ''}`, true);
+      else toast('อ่านได้: ' + value);
+    });
+  }
+
+  /** เปิดสแกนเพื่อค้นหาสินค้าที่บันทึกไว้แล้ว */
+  function scanToSearch() {
+    SCAN.open('สแกนเพื่อค้นหาสินค้า', (value) => {
+      const hit = S.products.find((p) => p.barcode === value);
+      if (hit) {
+        S.view = 'items'; S.fEntry = 'all'; S.fPhoto = 'all'; S.query = value;
+        render();
+        toast('พบแล้ว: ' + (hit.name || hit.code));
+        openForm(hit);
+      } else {
+        const d = SCHEMA.blank();
+        d.barcode = value;
+        openForm(d);
+        toast('ยังไม่มีในระบบ — สร้างรายการใหม่ให้แล้ว');
+      }
+    });
+  }
+
   /* ================= โหลดข้อมูล ================= */
   async function reload() {
     S.products = await DB.listProducts();
@@ -156,7 +280,7 @@ window.APP = (function () {
       if (S.fPhoto === 'noimg') { if (p.imageCount) return false; }
       else if (S.fPhoto !== 'all' && p.photoStatus !== S.fPhoto) return false;
       if (!q) return true;
-      return ['code', 'name', 'brand', 'model', 'replaces', 'note']
+      return ['code', 'barcode', 'name', 'brand', 'model', 'replaces', 'note']
         .map((k) => String(p[k] || '')).join(' ').toLowerCase().includes(q);
     });
     const cmp = {
@@ -213,6 +337,8 @@ window.APP = (function () {
           ${p.model ? `<span>รุ่น ${esc(p.model)}</span>` : ''}
           <span>เข้า ${fmtDate(p.arrivalDate)}</span>
         </div>
+        ${p.barcode ? `<div class="meta" style="font-variant-numeric:tabular-nums;color:var(--muted)">
+          <span title="บาร์โค้ด">▍▍▎ ${esc(p.barcode)}</span></div>` : ''}
         ${p.entryType === 'replace' && p.replaces ? `<div class="repl">แทนรุ่นเดิม → <b>${esc(p.replaces)}</b></div>` : ''}
         ${p.note ? `<div class="meta" style="color:var(--muted)">${esc(p.note.slice(0, 90))}${p.note.length > 90 ? '…' : ''}</div>` : ''}
         <div class="foot">
@@ -234,8 +360,12 @@ window.APP = (function () {
     <div class="toolbar">
       <div class="search">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-        <input id="q" type="search" placeholder="ค้นหา รหัส / ชื่อ / แบรนด์ / รุ่นเดิม" value="${esc(S.query)}">
+        <input id="q" type="search" placeholder="ค้นหา รหัส / บาร์โค้ด / ชื่อ / แบรนด์ / รุ่นเดิม" value="${esc(S.query)}">
       </div>
+      <button class="btn btn-scan" id="btnScanSearch" title="สแกนบาร์โค้ดเพื่อค้นหา">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round">
+          <path d="M3 8V5a2 2 0 012-2h3M21 8V5a2 2 0 00-2-2h-3M3 16v3a2 2 0 002 2h3M21 16v3a2 2 0 01-2 2h-3M7 8v8M11 8v8M15 8v8M18 8v8"/>
+        </svg>สแกน</button>
       <select class="sortsel" id="sort">
         <option value="updated"${S.sort === 'updated' ? ' selected' : ''}>แก้ไขล่าสุด</option>
         <option value="arrivalDesc"${S.sort === 'arrivalDesc' ? ' selected' : ''}>วันที่เข้า ใหม่→เก่า</option>
@@ -380,7 +510,12 @@ window.APP = (function () {
       input = `<textarea data-k="${f.key}" placeholder="${esc(f.placeholder || '')}">${esc(v)}</textarea>`;
     } else {
       input = `<input data-k="${f.key}" type="${f.type === 'date' ? 'date' : f.type === 'number' ? 'number' : 'text'}"
-        value="${esc(v)}" placeholder="${esc(f.placeholder || '')}"${f.datalist ? ` list="${f.datalist}"` : ''}>`;
+        value="${esc(v)}" placeholder="${esc(f.placeholder || '')}"${f.datalist ? ` list="${f.datalist}"` : ''}${f.inputMode ? ` inputmode="${f.inputMode}"` : ''}>`;
+      if (f.scan) input = `<div class="with-btn">${input}
+        <button type="button" class="scan" data-scan="1" title="สแกนด้วยกล้อง">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round">
+            <path d="M3 8V5a2 2 0 012-2h3M21 8V5a2 2 0 00-2-2h-3M3 16v3a2 2 0 002 2h3M21 16v3a2 2 0 01-2 2h-3M7 8v8M11 8v8M15 8v8M18 8v8"/>
+          </svg>สแกน</button></div>`;
     }
     return `<div class="field${f.col === 2 ? ' col2' : ''}${err ? ' invalid' : ''}">
       <label>${esc(f.label)}${req}</label>${input}${err ? `<span class="err">${esc(err)}</span>` : ''}</div>`;
@@ -450,6 +585,12 @@ window.APP = (function () {
     const d = S.edit;
     const errors = SCHEMA.validate(d);
     if (Object.keys(errors).length) { renderForm(errors); toast('กรอกข้อมูลที่จำเป็นให้ครบ', true); return; }
+    // เตือนถ้าบาร์โค้ดซ้ำกับรายการอื่น (ยังบันทึกได้ถ้ายืนยัน — บางร้านใช้บาร์โค้ดเดียวหลายไซซ์)
+    const bc = String(d.barcode || '').trim();
+    if (bc) {
+      const dup = S.products.find((p) => p.barcode && p.barcode.trim() === bc && p.id !== d.id);
+      if (dup && !confirm(`บาร์โค้ด ${bc} ถูกใช้กับ "${dup.code || ''} ${dup.name || ''}" อยู่แล้ว\nบันทึกซ้ำต่อไหม?`)) return;
+    }
     const btn = $('#dSave'); btn.disabled = true; btn.textContent = 'กำลังบันทึก…';
     try {
       const rec = await DB.saveProduct(d);
@@ -574,6 +715,8 @@ window.APP = (function () {
     }
     const sort = $('#sort');
     if (sort) sort.addEventListener('change', () => { S.sort = sort.value; render(); });
+    const bss = $('#btnScanSearch');
+    if (bss) bss.addEventListener('click', scanToSearch);
 
     $$('#main [data-chip]').forEach((b) => b.addEventListener('click', () => {
       if (b.dataset.chip === 'entry') S.fEntry = b.dataset.key; else S.fPhoto = b.dataset.key;
@@ -641,6 +784,9 @@ window.APP = (function () {
       });
     });
 
+    const sb = $('#dBody [data-scan]');
+    if (sb) sb.addEventListener('click', scanIntoField);
+
     const drop = $('#drop'), file = $('#file');
     if (drop) {
       drop.addEventListener('click', (e) => { if (e.target !== file) file.click(); });
@@ -695,6 +841,24 @@ window.APP = (function () {
       closeForm(true); await reload(); toast('ลบรายการแล้ว');
     });
 
+    // สแกนบาร์โค้ด
+    const focusBarcode = () => {
+      const el = $('#dBody [data-k="barcode"]');
+      if (el) { el.focus(); el.select(); }
+      else toast('เปิดฟอร์มสินค้าแล้วพิมพ์ในช่องบาร์โค้ดได้เลย');
+    };
+    $('#scanClose').addEventListener('click', () => SCAN.close());
+    $('#scanManual').addEventListener('click', () => { SCAN.close(); focusBarcode(); });
+    $('#scanErr').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-s]');
+      if (!b) return;
+      SCAN.close();
+      if (b.dataset.s === 'manual') {
+        if (!S.edit) openForm(null);
+        setTimeout(focusBarcode, 300);
+      }
+    });
+
     $('#lbClose').addEventListener('click', closeLB);
     $('#lbPrev').addEventListener('click', () => stepLB(-1));
     $('#lbNext').addEventListener('click', () => stepLB(1));
@@ -706,7 +870,8 @@ window.APP = (function () {
 
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
-        if ($('#lb').classList.contains('on')) closeLB();
+        if ($('#scanOv').classList.contains('on')) SCAN.close();
+        else if ($('#lb').classList.contains('on')) closeLB();
         else if (S.edit) closeForm();
       }
       if ($('#lb').classList.contains('on')) {
@@ -744,5 +909,5 @@ window.APP = (function () {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();
 
-  return { toast, reload, S, processImage, openForm, get state() { return S; } };
+  return { toast, reload, S, processImage, openForm, SCAN, scanToSearch, scanIntoField, get state() { return S; } };
 })();
