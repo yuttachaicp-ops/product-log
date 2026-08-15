@@ -79,6 +79,19 @@ const CH_ACTIONS = {
               { to: 'off',       text: 'ปิดช่องทางนี้',    kind: 'ghost'   }],
 };
 
+/* ---------- ไอคอนเมนู (SVG เส้น ใช้สีตามธีมอัตโนมัติ) ---------- */
+const svg = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+  stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+
+const ICONS = {
+  list:    svg('<path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z"/><path d="M3 7.5 12 12l9-4.5M12 12v9"/>'),
+  form:    svg('<path d="M12 5v14M5 12h14"/>'),
+  pending: svg('<circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 2"/>'),
+  dash:    svg('<path d="M3 20h18M7.5 20v-5.5M12 20V8M16.5 20v-8.5"/>'),
+  set:     svg('<circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2M12 19.2v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2.8 12h2M19.2 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'),
+  search:  svg('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>'),
+};
+
 /* ---------- หมวดสินค้า (แก้ไขได้ในหน้าตั้งค่า) ---------- */
 const DEFAULT_CATEGORIES = [
   'ทั่วไป', 'อาหาร/เครื่องดื่ม', 'ของใช้ในบ้าน', 'เครื่องเขียน',

@@ -67,6 +67,8 @@ const S = {
   fCategory: 'all',
   fArchived: 'active',
   sort: 'new',
+  bulk: false,        // โหมดเลือกหลายรายการในหน้ารอคอนเฟิร์ม
+  sel: new Set(),
   draft: null,        // สินค้าที่กำลังกรอก/แก้ไข
   draftIsNew: true,
   viewId: null,       // สินค้าที่กำลังดูรายละเอียด
@@ -74,12 +76,28 @@ const S = {
 };
 
 const TABS = [
-  { id: 'list',  label: 'รายการสินค้า' },
-  { id: 'form',  label: 'เพิ่มสินค้า' },
-  { id: 'pending', label: 'รอคอนเฟิร์ม' },
-  { id: 'dash',  label: 'Dashboard' },
-  { id: 'set',   label: 'ตั้งค่า' },
+  { id: 'list',    label: 'รายการสินค้า', short: 'รายการ' },
+  { id: 'form',    label: 'เพิ่มสินค้า',   short: 'เพิ่ม' },
+  { id: 'pending', label: 'รอคอนเฟิร์ม',  short: 'คอนเฟิร์ม' },
+  { id: 'dash',    label: 'Dashboard',    short: 'ภาพรวม' },
+  { id: 'set',     label: 'ตั้งค่า',       short: 'ตั้งค่า' },
 ];
+/* ลำดับบนแถบเมนูล่างของมือถือ — ปุ่มเพิ่มสินค้าอยู่ตรงกลาง */
+const BOTTOM_ORDER = ['list', 'pending', 'form', 'dash', 'set'];
+
+/* ============================================================
+   ขนาดหน้าจอ — ปรับหน้าตาตามอุปกรณ์
+   มือถือ  <640px  : เมนูล่างแบบแอป · รายการเป็นการ์ด
+   แท็บเล็ต 640–1023: เมนูบน · 2 คอลัมน์
+   เดสก์ท็อป ≥1024px: เมนูข้าง · รายการเป็นตาราง · คีย์ลัด
+   ============================================================ */
+const MQ = {
+  desk: window.matchMedia('(min-width:1024px)'),
+  mob:  window.matchMedia('(max-width:639px)'),
+};
+const isDesk = () => MQ.desk.matches;
+const isMob  = () => MQ.mob.matches;
+[MQ.desk, MQ.mob].forEach((m) => m.addEventListener('change', () => render()));
 
 /* ============================================================
    ส่วนที่ 3 — บันทึก / โหลด
@@ -367,6 +385,43 @@ async function moveChannel(pid, key, to) {
   render();
 }
 
+/* ---------- คอนเฟิร์มหลายรายการพร้อมกัน ---------- */
+async function bulkConfirm() {
+  const keys = [...S.sel];
+  if (!keys.length) return;
+  const r = await confirmBox({
+    title: `คอนเฟิร์ม ${keys.length} รายการ`,
+    sub: 'ทุกรายการที่เลือกจะเปลี่ยนเป็น <b>คอนเฟิร์มแล้ว</b> พร้อมกัน',
+    ok: `คอนเฟิร์ม ${keys.length} รายการ`,
+    fields: [
+      { key: 'by', label: 'ผู้คอนเฟิร์ม', required: !!DB.settings.requireConfirmBy, value: DB.settings.user },
+      { key: 'note', label: 'หมายเหตุ (ใส่ให้ทุกรายการ)', type: 'textarea', placeholder: 'ไม่บังคับ' },
+    ],
+  });
+  if (!r) return;
+
+  await backup();
+  let n = 0;
+  keys.forEach((key) => {
+    const [pid, k] = key.split('|');
+    const p = byId(pid);
+    if (!p) return;
+    const c = p.channels[k];
+    if (!canMove(c.status || 'off', 'confirmed')) return;
+    Object.assign(c, {
+      status: 'confirmed', confirmedBy: r.by, confirmedAt: nowISO(), note: r.note || c.note,
+    });
+    p.updatedAt = nowISO();
+    addHistory(p, 'channel', `${CHANNELS[k].label}: รอคอนเฟิร์ม → คอนเฟิร์มแล้ว (คอนเฟิร์มหลายรายการ)`);
+    n++;
+  });
+  await save(true);
+  S.sel.clear();
+  S.bulk = false;
+  toast(`คอนเฟิร์มแล้ว ${n} รายการ`, 'ok');
+  render();
+}
+
 /* ============================================================
    ส่วนที่ 7 — บันทึกสินค้า
    ============================================================ */
@@ -498,17 +553,24 @@ function productRow(p) {
    ============================================================ */
 function viewList() {
   const cats = ['all', ...DB.settings.categories];
+  /* มือถือ: ซ่อนตัวกรองไว้หลังปุ่ม ให้เหลือช่องค้นหาอย่างเดียว จอจะไม่แน่น */
+  const nF = [S.fType !== 'all', S.fStatus !== 'all', S.fChannel !== 'all',
+    S.fCategory !== 'all', S.fArchived !== 'active', S.sort !== 'new'].filter(Boolean).length;
+  const hideF = isMob() && !S.showFilters;
+
   return `
   <div class="sec-title">ค้นหาและกรอง</div>
   <div class="card pad">
-    <div class="filters" style="margin-bottom:10px">
+    <div class="filters" style="margin-bottom:${hideF ? '0' : '10px'}">
       <div class="search">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <input id="q" placeholder="ค้นหา รหัส / บาร์โค้ด / ชื่อสินค้า / ผู้ขาย" value="${esc(S.q)}">
+        <input id="q" placeholder="ค้นหา รหัส / บาร์โค้ด / ชื่อ" value="${esc(S.q)}">
       </div>
+      ${isMob() ? `<button class="btn sm" id="btnFilters" style="flex:none">
+        ตัวกรอง${nF ? ` <span class="pill t-amber">${nF}</span>` : ''}</button>` : ''}
     </div>
-    <div class="filters">
+    <div class="filters"${hideF ? ' style="display:none"' : ''}>
       <select id="fType">
         <option value="all"${S.fType === 'all' ? ' selected' : ''}>ทุกประเภท</option>
         ${Object.entries(PRODUCT_TYPES).map(([k, v]) => `<option value="${k}"${S.fType === k ? ' selected' : ''}>${v.label}</option>`).join('')}
@@ -549,8 +611,33 @@ function listBody() {
     return `<div class="sec-title">ผลลัพธ์</div><div class="card"><div class="empty">
       <b>ไม่พบสินค้าที่ตรงเงื่อนไข</b>ลองล้างตัวกรอง หรือกดปุ่ม “＋ เพิ่มสินค้า”</div></div>`;
   }
-  return `<div class="sec-title">ผลลัพธ์ · ${list.length} รายการ</div>
-    <div class="card">${list.map(productRow).join('')}</div>`;
+  const head = `<div class="sec-title">ผลลัพธ์ · ${list.length} รายการ</div>`;
+
+  /* เดสก์ท็อป: ตารางคอลัมน์ อ่านทีละหลายรายการได้เร็วกว่า */
+  if (isDesk()) {
+    return head + `<div class="card" style="overflow:hidden"><table class="tbl">
+      <thead><tr>
+        <th style="width:130px">รหัสสินค้า</th><th>ชื่อสินค้า</th>
+        <th style="width:120px">บาร์โค้ด</th><th style="width:120px">ประเภท</th>
+        ${CHANNEL_KEYS.map((k) => `<th style="width:120px">${CHANNELS[k].label}</th>`).join('')}
+        <th style="width:110px" class="num">บันทึกเมื่อ</th>
+      </tr></thead><tbody>
+      ${list.map((p) => `<tr data-open="${p.id}">
+        <td class="mono">${esc(p.code)}</td>
+        <td class="nm">${esc(p.name || '(ไม่มีชื่อ)')}
+          ${p.archived ? ' <span class="pill t-gray">เก็บเข้าคลัง</span>' : ''}</td>
+        <td class="mono" style="color:var(--ink-3)">${esc(p.barcode || '—')}</td>
+        <td>${typePill(p)}</td>
+        ${CHANNEL_KEYS.map((k) => {
+          const st = p.channels?.[k]?.status || 'off';
+          return `<td>${st === 'off' ? '<span style="color:var(--ink-4)">—</span>' : statusPill(st)}</td>`;
+        }).join('')}
+        <td class="num">${fmtAgo(p.createdAt)}</td>
+      </tr>`).join('')}
+      </tbody></table></div>`;
+  }
+
+  return head + `<div class="card">${list.map(productRow).join('')}</div>`;
 }
 
 /* ============================================================
@@ -624,7 +711,7 @@ function viewForm() {
       <textarea class="inp" data-field="note" placeholder="รายละเอียดอื่น ๆ">${esc(d.note)}</textarea></label>
   </div>
 
-  <div class="row end" style="margin-top:18px;gap:8px">
+  <div class="row end actions" style="margin-top:18px;gap:8px">
     ${!S.draftIsNew ? '<button class="btn danger" id="btnDel">ลบรายการนี้</button>' : ''}
     <div class="sp"></div>
     <button class="btn" id="btnCancel">ยกเลิก</button>
@@ -755,20 +842,42 @@ function viewPending() {
   const ready = DB.products.filter((p) => !p.archived &&
     CHANNEL_KEYS.some((k) => p.channels[k].status === 'confirmed'));
 
+  const sel = S.sel;
+  const nSel = list.filter(({ p, k }) => sel.has(p.id + '|' + k)).length;
+
   return `
-  <div class="sec-title">คิวรอคอนเฟิร์ม · ${list.length} รายการ</div>
+  <div class="row" style="margin:22px 0 10px">
+    <div class="sec-title" style="margin:0">คิวรอคอนเฟิร์ม · ${list.length} รายการ</div>
+    <div class="sp"></div>
+    ${list.length > 1 ? `<button class="btn sm" id="btnBulk">${S.bulk ? 'ยกเลิกการเลือก' : 'เลือกหลายรายการ'}</button>` : ''}
+  </div>
+
+  ${S.bulk ? `<div class="card pad" style="margin-bottom:12px;position:sticky;top:64px;z-index:20">
+    <div class="row">
+      <button class="btn sm" id="btnSelAll">${nSel === list.length ? 'ไม่เลือกเลย' : 'เลือกทั้งหมด'}</button>
+      <div class="sp"></div>
+      <b style="font-size:13.5px">เลือกแล้ว ${nSel}</b>
+      <button class="btn sm primary" id="btnBulkOk"${nSel ? '' : ' disabled'}>คอนเฟิร์มที่เลือก</button>
+    </div>
+  </div>` : ''}
+
   <div class="card">
-    ${list.map(({ p, k, c }) => `<div class="item">
+    ${list.map(({ p, k, c }) => {
+      const key = p.id + '|' + k;
+      return `<div class="item">
+      ${S.bulk ? `<label class="sw" style="width:22px;height:22px;flex:none">
+        <input type="checkbox" data-sel="${key}"${sel.has(key) ? ' checked' : ''}
+          style="opacity:1;width:20px;height:20px;accent-color:var(--ink)"></label>` : ''}
       <div class="ch-logo" style="background:var(--${k})">${CHANNELS[k].icon}</div>
       <div class="item-main" data-open="${p.id}">
         <b>${esc(p.name)}</b>
         <small class="mono">${esc(p.code)} · ${CHANNELS[k].label} · ขอเมื่อ ${fmtAgo(c.requestedAt)}</small>
       </div>
-      <div class="row" style="flex:none;gap:6px">
+      ${S.bulk ? '' : `<div class="row" style="flex:none;gap:6px">
         <button class="btn sm primary" data-move="${p.id}|${k}|confirmed">คอนเฟิร์ม</button>
         <button class="btn sm danger" data-move="${p.id}|${k}|rejected">ไม่อนุมัติ</button>
-      </div>
-    </div>`).join('')}
+      </div>`}
+    </div>`; }).join('')}
   </div>
 
   ${ready.length ? `<div class="sec-title">คอนเฟิร์มแล้ว · พร้อมลงขาย</div>
@@ -1041,13 +1150,40 @@ function importJSON() {
 /* ============================================================
    ส่วนที่ 16 — วาดหน้าจอ + ผูกเหตุการณ์
    ============================================================ */
+/* ---------- เมนู 3 รูปแบบ จากรายการเดียวกัน ---------- */
+function navItem(t, kind) {
+  const pend = t.id === 'pending' ? pendingList().length : 0;
+  const on = S.tab === t.id || (S.tab === 'detail' && t.id === 'list');
+  const mid = kind === 'bottom' && t.id === 'form';
+  const label = kind === 'side' ? t.label : (t.short || t.label);
+  return `<button class="nav-i${on && !mid ? ' on' : ''}${mid ? ' mid' : ''}" data-tab="${t.id}"
+    title="${esc(t.label)}">${ICONS[t.id]}<span>${label}</span>${
+    pend ? `<span class="bdg">${pend}</span>` : ''}</button>`;
+}
+
 function render() {
-  /* แท็บ */
+  /* แท็บบน — ใช้บนแท็บเล็ต */
   $('#tabs').innerHTML = TABS.map((t) => {
     const pend = t.id === 'pending' ? pendingList().length : 0;
     return `<button data-tab="${t.id}" class="${S.tab === t.id || (S.tab === 'detail' && t.id === 'list') ? 'on' : ''}">
       ${t.label}${pend ? ` <span class="pill t-amber" style="margin-left:2px">${pend}</span>` : ''}</button>`;
   }).join('');
+
+  /* เมนูข้าง — เดสก์ท็อป */
+  $('#sidebar').innerHTML = TABS.map((t) => navItem(t, 'side')).join('') + `
+    <div class="side-t">คีย์ลัด</div>
+    <div class="side-box">
+      <div style="display:flex;justify-content:space-between;padding:3px 0">
+        <span>เพิ่มสินค้า</span><span class="kbd">N</span></div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0">
+        <span>ค้นหา</span><span class="kbd">/</span></div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0">
+        <span>ย้อนกลับ</span><span class="kbd">Esc</span></div>
+    </div>`;
+
+  /* เมนูล่าง — มือถือ */
+  $('#bottomNav').innerHTML = BOTTOM_ORDER
+    .map((id) => navItem(TABS.find((t) => t.id === id), 'bottom')).join('');
 
   const nPend = pendingList().length;
   $('#subline').textContent = `${DB.products.filter((p) => !p.archived).length} รายการ` +
@@ -1081,6 +1217,8 @@ function bind() {
     const el = $('#' + id);
     if (el) el.onchange = () => { S[key] = el.value; $('#listWrap').innerHTML = listBody(); };
   });
+  const bf = $('#btnFilters');
+  if (bf) bf.onclick = () => { S.showFilters = !S.showFilters; render(); };
   const rst = $('#btnReset');
   if (rst) rst.onclick = () => {
     Object.assign(S, { q: '', fType: 'all', fStatus: 'all', fChannel: 'all', fCategory: 'all', fArchived: 'active', sort: 'new' });
@@ -1205,6 +1343,24 @@ function bind() {
     };
   });
 
+  /* ---- เลือกหลายรายการ ---- */
+  const bb2 = $('#btnBulk');
+  if (bb2) bb2.onclick = () => { S.bulk = !S.bulk; S.sel.clear(); render(); };
+  const bsa = $('#btnSelAll');
+  if (bsa) bsa.onclick = () => {
+    const all = pendingList();
+    if (S.sel.size === all.length) S.sel.clear();
+    else all.forEach(({ p, k }) => S.sel.add(p.id + '|' + k));
+    render();
+  };
+  const bok = $('#btnBulkOk'); if (bok) bok.onclick = bulkConfirm;
+  $$('[data-sel]').forEach((c) => {
+    c.onchange = () => {
+      if (c.checked) S.sel.add(c.dataset.sel); else S.sel.delete(c.dataset.sel);
+      render();
+    };
+  });
+
   /* ---- ธีม ---- */
   $$('[data-theme-set]').forEach((b) => {
     b.onclick = () => { setTheme(b.dataset.themeSet); render(); };
@@ -1251,6 +1407,19 @@ document.addEventListener('DOMContentLoaded', () => {
   document.addEventListener('click', (e) => {
     const t = e.target.closest('[data-tab]');
     if (t) { S.tab = t.dataset.tab; if (t.dataset.tab === 'form') newDraft(); else render(); }
+  });
+
+  /* ---- คีย์ลัด (เดสก์ท็อป) ---- */
+  document.addEventListener('keydown', (e) => {
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '');
+    if (e.key === 'Escape') {
+      if ($('#modal').innerHTML) return;          /* ให้ตัวปิด modal จัดการก่อน */
+      if (S.tab === 'detail' || S.tab === 'form') { S.draft = null; S.tab = 'list'; render(); }
+      return;
+    }
+    if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === '/') { e.preventDefault(); S.tab = 'list'; render(); setTimeout(() => $('#q')?.focus(), 60); }
+    if (e.key === 'n' || e.key === 'N' || e.key === 'ๆ') { e.preventDefault(); newDraft(); }
   });
 });
 
