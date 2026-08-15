@@ -194,6 +194,24 @@ function setTheme(v) {
   applyTheme();
 }
 
+/* ---------- ขนาดหน้าจอ (ย่อ/ขยายทั้งหน้า) — เก็บเฉพาะเครื่องนี้ ---------- */
+const ZOOM_KEY = 'pl_zoom';
+const ZOOMS = [['1', 'ปกติ'], ['1.15', 'ใหญ่'], ['1.3', 'ใหญ่มาก']];
+
+function getZoom() {
+  try { return localStorage.getItem(ZOOM_KEY) || '1'; } catch (e) { return '1'; }
+}
+
+function applyZoom() {
+  const z = getZoom();
+  document.documentElement.style.zoom = z === '1' ? '' : z;
+}
+
+function setZoom(v) {
+  try { localStorage.setItem(ZOOM_KEY, v); } catch (e) {}
+  applyZoom();
+}
+
 /* ปุ่มบนหัวเว็บ: สลับไปตรงข้ามกับที่เห็นอยู่ */
 function toggleTheme() {
   setTheme(isDark() ? 'light' : 'dark');
@@ -995,6 +1013,15 @@ function viewSet() {
           `<button data-theme-set="${v}" class="${getTheme() === v ? 'on' : ''}">${t}</button>`).join('')}
       </div>
     </div>
+    <div class="hr"></div>
+    <div class="row" style="justify-content:space-between">
+      <div><b style="font-size:14px">ขนาดตัวอักษรและปุ่ม</b>
+        <div class="hint">ขยายทั้งหน้าจอ เหมาะกับจอใหญ่หรือเวลามองไกล</div></div>
+      <div class="seg">
+        ${ZOOMS.map(([v, t]) =>
+          `<button data-zoom-set="${v}" class="${getZoom() === v ? 'on' : ''}">${t}</button>`).join('')}
+      </div>
+    </div>
   </div>
 
   <div class="sec-title">ผู้ใช้งาน</div>
@@ -1365,6 +1392,13 @@ function bind() {
   $$('[data-theme-set]').forEach((b) => {
     b.onclick = () => { setTheme(b.dataset.themeSet); render(); };
   });
+  $$('[data-zoom-set]').forEach((b) => {
+    b.onclick = () => {
+      setZoom(b.dataset.zoomSet);
+      toast('ขนาด: ' + (ZOOMS.find((z) => z[0] === b.dataset.zoomSet) || [, ''])[1]);
+      render();
+    };
+  });
 
   /* ---- ซิงก์ ---- */
   const sy = $('#btnSyncNow'); if (sy) sy.onclick = () => syncNow(false);
@@ -1398,6 +1432,7 @@ function bind() {
 document.addEventListener('DOMContentLoaded', () => {
   $('#fab').onclick = newDraft;
   $('#btnTheme').onclick = toggleTheme;
+  applyZoom();
   $('#syncChip').onclick = () => syncNow(false);
   applyTheme();
   $('#btnQuickSearch').onclick = () => {
@@ -1428,6 +1463,7 @@ document.addEventListener('DOMContentLoaded', () => {
    ============================================================ */
 (async function boot() {
   applyTheme();
+  applyZoom();
   await loadDB();
   if (typeof DB.settings.syncOn === 'boolean') SYNC.on = DB.settings.syncOn;
   SYNC.state = SYNC.on ? 'idle' : 'off';
