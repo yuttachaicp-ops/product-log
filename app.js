@@ -43,6 +43,7 @@ function idbSet(key, val) {
    ============================================================ */
 const DEFAULT_DB = {
   products: [],
+  inbox: [],   /* บาร์โค้ดที่จดไว้ก่อน ยังไม่ได้เพิ่มเป็นสินค้า */
   settings: {
     user: '',
     categories: [...DEFAULT_CATEGORIES],
@@ -78,12 +79,13 @@ const S = {
 const TABS = [
   { id: 'list',    label: 'รายการสินค้า', short: 'รายการ' },
   { id: 'form',    label: 'เพิ่มสินค้า',   short: 'เพิ่ม' },
-  { id: 'pending', label: 'รอคอนเฟิร์ม',  short: 'คอนเฟิร์ม' },
+  { id: 'pending', label: 'รอคอนเฟิร์ม',  short: 'คิวรอ' },
+  { id: 'inbox',   label: 'บาร์โค้ดค้าง',  short: 'บาร์โค้ด' },
   { id: 'dash',    label: 'Dashboard',    short: 'ภาพรวม' },
   { id: 'set',     label: 'ตั้งค่า',       short: 'ตั้งค่า' },
 ];
 /* ลำดับบนแถบเมนูล่างของมือถือ — ปุ่มเพิ่มสินค้าอยู่ตรงกลาง */
-const BOTTOM_ORDER = ['list', 'pending', 'form', 'dash', 'set'];
+const BOTTOM_ORDER = ['list', 'pending', 'form', 'inbox', 'dash', 'set'];
 
 /* ============================================================
    ขนาดหน้าจอ — ปรับหน้าตาตามอุปกรณ์
@@ -111,6 +113,7 @@ async function loadDB() {
       DB.meta = Object.assign({}, DEFAULT_DB.meta, d.meta || {});
       if (!Array.isArray(DB.meta.tombstones)) DB.meta.tombstones = [];
       DB.products = Array.isArray(d.products) ? d.products : [];
+      DB.inbox = Array.isArray(d.inbox) ? d.inbox : [];
       DB.products.forEach(migrate);
     }
   } catch (e) { console.warn('load failed', e); }
@@ -450,7 +453,7 @@ function validateDraft(d) {
   if (d.type === 'replace' && !(d.replaceOfCode || '').trim() && !d.replaceOfId)
     e.replaceOfCode = 'ระบุรหัสสินค้าเดิมที่ถูกแทนที่';
   const bc = barcodeCheck(d.barcode);
-  if (!bc.ok) e.barcode = bc.note;
+  if (bc.level === 'error') e.barcode = bc.note;
   Object.assign(e, dupCheck(d));
   return e;
 }
@@ -506,8 +509,16 @@ async function saveDraft() {
     }
   }
 
+  /* ถ้ามาจากสมุดบาร์โค้ดค้าง ปิดรายการนั้นให้เลย */
+  const ib = DB.inbox.find((x) => x.id === S.fromInbox) ||
+             DB.inbox.find((x) => !x.done && x.barcode && x.barcode === d.barcode);
+  if (ib) { ib.done = true; ib.productId = d.id; ib.updatedAt = nowISO(); }
+  S.fromInbox = null;
+
   await save(true);
-  toast(S.draftIsNew ? 'บันทึกสินค้าใหม่แล้ว' : 'อัปเดตข้อมูลแล้ว', 'ok');
+  toast(S.draftIsNew
+    ? (ib ? 'บันทึกสินค้าใหม่ และปิดรายการในสมุดบาร์โค้ดแล้ว' : 'บันทึกสินค้าใหม่แล้ว')
+    : 'อัปเดตข้อมูลแล้ว', 'ok');
   S.viewId = d.id;
   S.draft = null;
   S.tab = 'detail';
@@ -534,6 +545,10 @@ function editDraft(id) {
 /* ============================================================
    ส่วนที่ 8 — ชิ้นส่วน HTML ที่ใช้ซ้ำ
    ============================================================ */
+function hintCls(level) {
+  return level === 'ok' ? 'ok' : (level === 'error' || level === 'warn') ? 'err' : '';
+}
+
 function statusPill(st) {
   const s = CH_STATUS[st] || CH_STATUS.off;
   return `<span class="pill t-${s.tone}"><i class="dot"></i>${s.label}</span>`;
@@ -672,9 +687,10 @@ function viewForm() {
       <label class="f"><span>รหัสสินค้า <em>*</em></span>
         <input class="inp mono" data-field="code" value="${esc(d.code)}" placeholder="เช่น P-00123" autocomplete="off">
         <div class="hint" data-err="code"></div></label>
-      <label class="f"><span>เลขบาร์โค้ด <i>(ถ้ามี)</i></span>
-        <input class="inp mono" data-field="barcode" inputmode="numeric" value="${esc(d.barcode)}" placeholder="เช่น 8850123456789" autocomplete="off">
-        <div class="hint ${bc.ok ? 'ok' : 'err'}" data-err="barcode">${d.barcode ? esc(bc.note) : ''}</div></label>
+      <label class="f"><span>เลขบาร์โค้ด <i>(ถ้ามี · ไม่เกิน ${BARCODE_MAX} หลัก)</i></span>
+        <input class="inp mono" data-field="barcode" inputmode="numeric" maxlength="${BARCODE_MAX}"
+          value="${esc(d.barcode)}" placeholder="ไม่เกิน ${BARCODE_MAX} หลัก" autocomplete="off">
+        <div class="hint ${hintCls(bc.level)}" data-err="barcode">${d.barcode ? esc(bc.note) : ''}</div></label>
     </div>
     <label class="f"><span>ชื่อสินค้า <em>*</em></span>
       <input class="inp" data-field="name" value="${esc(d.name)}" placeholder="ชื่อเต็มที่ใช้ในระบบ">
@@ -912,6 +928,107 @@ function viewPending() {
 }
 
 /* ============================================================
+   ส่วนที่ 12.5 — หน้าจอ: สมุดบาร์โค้ดค้าง
+   จดบาร์โค้ดที่เจอไว้ก่อน ยังไม่ต้องมีข้อมูลสินค้า
+   แล้วค่อยกดแปลงเป็นสินค้าเต็มทีหลัง
+   ============================================================ */
+function inboxOpen() { return DB.inbox.filter((x) => !x.done); }
+
+function findByBarcode(bc) {
+  const b = String(bc || '').trim();
+  if (!b) return null;
+  return DB.products.find((p) => (p.barcode || '').trim() === b) || null;
+}
+
+function viewInbox() {
+  const open = inboxOpen();
+  const done = DB.inbox.filter((x) => x.done);
+
+  return `
+  <div class="sec-title">จดบาร์โค้ดไว้ก่อน</div>
+  <div class="card pad">
+    <p style="margin:0 0 12px;font-size:13px;color:var(--ink-3)">
+      เจอบาร์โค้ดที่ยังไม่มีในระบบ — ยิงเครื่องสแกนหรือพิมพ์ลงช่องนี้ได้เลย
+      ยังไม่ต้องรู้ชื่อหรือรหัสสินค้า ไว้ค่อยมากดแปลงเป็นสินค้าเต็มทีหลัง
+    </p>
+    <div class="grid g2" style="gap:10px">
+      <label class="f" style="margin:0"><span>เลขบาร์โค้ด <em>*</em></span>
+        <input class="inp mono" id="ibCode" inputmode="numeric" maxlength="${BARCODE_MAX}"
+          placeholder="ยิงสแกนหรือพิมพ์ แล้วกด Enter" autocomplete="off">
+        <div class="hint" id="ibHint"></div></label>
+      <label class="f" style="margin:0"><span>โน้ตสั้น ๆ <i>(ไม่บังคับ)</i></span>
+        <input class="inp" id="ibNote" placeholder="เช่น เจอที่ชั้น A3 / ของ supplier X"></label>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn primary" id="ibAdd">เพิ่มเข้าสมุด</button>
+      <div class="hint" style="margin:0">กด <b>Enter</b> ในช่องบาร์โค้ดก็ได้ — ยิงติดกันหลายตัวได้เลย</div>
+    </div>
+  </div>
+
+  <div class="sec-title">ค้างอยู่ · ${open.length} รายการ</div>
+  ${open.length ? `<div class="card">${open.map((x) => {
+    const hit = findByBarcode(x.barcode);
+    return `<div class="item" style="cursor:default">
+      <div class="item-main">
+        <b class="mono" style="font-size:16px">${esc(x.barcode)}</b>
+        <small>${x.note ? esc(x.note) + ' · ' : ''}จดเมื่อ ${fmtAgo(x.createdAt)}${x.by ? ' · ' + esc(x.by) : ''}</small>
+        ${hit ? `<div class="chips" style="margin-top:6px">
+          <span class="pill t-green">มีในระบบแล้ว: ${esc(hit.code)}</span></div>` : ''}
+      </div>
+      <div class="row" style="flex:none;gap:6px">
+        ${hit ? `<button class="btn sm" data-open="${hit.id}">ดูสินค้า</button>
+                 <button class="btn sm" data-ibdone="${x.id}">ปิดรายการ</button>`
+              : `<button class="btn sm primary" data-ibnew="${x.id}">สร้างสินค้า</button>`}
+        <button class="btn sm ghost" data-ibdel="${x.id}">ลบ</button>
+      </div>
+    </div>`; }).join('')}</div>`
+    : `<div class="card"><div class="empty"><b>ไม่มีบาร์โค้ดค้าง</b>
+        ยิงบาร์โค้ดที่ยังไม่มีในระบบเก็บไว้ที่ช่องด้านบนได้เลย</div></div>`}
+
+  ${done.length ? `<div class="sec-title">จัดการแล้ว · ${done.length} รายการ</div>
+  <div class="card">${done.slice(0, 20).map((x) => {
+    const p = x.productId ? byId(x.productId) : null;
+    return `<div class="item"${p ? ` data-open="${p.id}"` : ' style="cursor:default"'}>
+      <div class="item-main">
+        <b class="mono" style="color:var(--ink-3)">${esc(x.barcode)}</b>
+        <small>${p ? 'เพิ่มเป็น ' + esc(p.code) + ' — ' + esc(p.name) : 'ปิดรายการแล้ว'}
+          · ${fmtAgo(x.updatedAt)}</small>
+      </div>
+      <button class="btn sm ghost" data-ibdel="${x.id}">ลบ</button>
+    </div>`; }).join('')}</div>` : ''}`;
+}
+
+async function ibAdd() {
+  const el = $('#ibCode');
+  const bc = (el.value || '').trim();
+  const hint = $('#ibHint');
+  if (!bc) { el.classList.add('bad'); return; }
+
+  const chk = barcodeCheck(bc);
+  if (chk.level === 'error') {
+    el.classList.add('bad');
+    hint.textContent = chk.note;
+    hint.className = 'hint err';
+    return;
+  }
+  if (DB.inbox.some((x) => !x.done && x.barcode === bc)) {
+    hint.textContent = 'บาร์โค้ดนี้จดไว้แล้ว';
+    hint.className = 'hint err';
+    return;
+  }
+
+  const item = blankInbox(bc, ($('#ibNote').value || '').trim());
+  item.by = DB.settings.user || '';
+  DB.inbox.unshift(item);
+  await save(true);
+
+  const hit = findByBarcode(bc);
+  toast(hit ? `จดแล้ว — บาร์โค้ดนี้มีในระบบ (${hit.code})` : 'จดบาร์โค้ดแล้ว', 'ok');
+  render();
+  setTimeout(() => { const i = $('#ibCode'); if (i) i.focus(); }, 50);
+}
+
+/* ============================================================
    ส่วนที่ 13 — หน้าจอ: Dashboard
    ============================================================ */
 function viewDash() {
@@ -946,11 +1063,14 @@ function viewDash() {
 
   return `
   <div class="sec-title">ภาพรวม</div>
-  <div class="grid g4">
+  <div class="grid g4" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
     <div class="stat"><div class="n">${total}</div><div class="l">สินค้าที่ใช้งานอยู่</div></div>
     <div class="stat"><div class="n" style="color:var(--green)">${nNew}</div><div class="l">สินค้าใหม่</div></div>
     <div class="stat"><div class="n" style="color:var(--amber)">${nRep}</div><div class="l">เปลี่ยนแทนตัวเก่า</div></div>
     <div class="stat"><div class="n" style="color:${nPend ? 'var(--amber)' : 'var(--ink)'}">${nPend}</div><div class="l">รอคอนเฟิร์ม</div></div>
+    <div class="stat" data-tab="inbox" style="cursor:pointer"><div class="n" style="color:${
+      inboxOpen().length ? 'var(--blue)' : 'var(--ink)'}">${inboxOpen().length}</div>
+      <div class="l">บาร์โค้ดค้าง</div></div>
   </div>
 
   <div class="sec-title">สถานะรายช่องทาง</div>
@@ -1179,7 +1299,8 @@ function importJSON() {
    ============================================================ */
 /* ---------- เมนู 3 รูปแบบ จากรายการเดียวกัน ---------- */
 function navItem(t, kind) {
-  const pend = t.id === 'pending' ? pendingList().length : 0;
+  const pend = t.id === 'pending' ? pendingList().length
+    : t.id === 'inbox' ? DB.inbox.filter((x) => !x.done).length : 0;
   const on = S.tab === t.id || (S.tab === 'detail' && t.id === 'list');
   const mid = kind === 'bottom' && t.id === 'form';
   const label = kind === 'side' ? t.label : (t.short || t.label);
@@ -1191,7 +1312,8 @@ function navItem(t, kind) {
 function render() {
   /* แท็บบน — ใช้บนแท็บเล็ต */
   $('#tabs').innerHTML = TABS.map((t) => {
-    const pend = t.id === 'pending' ? pendingList().length : 0;
+    const pend = t.id === 'pending' ? pendingList().length
+    : t.id === 'inbox' ? DB.inbox.filter((x) => !x.done).length : 0;
     return `<button data-tab="${t.id}" class="${S.tab === t.id || (S.tab === 'detail' && t.id === 'list') ? 'on' : ''}">
       ${t.label}${pend ? ` <span class="pill t-amber" style="margin-left:2px">${pend}</span>` : ''}</button>`;
   }).join('');
@@ -1221,6 +1343,7 @@ function render() {
   else if (S.tab === 'form') v.innerHTML = viewForm();
   else if (S.tab === 'detail') v.innerHTML = viewDetail();
   else if (S.tab === 'pending') v.innerHTML = viewPending();
+  else if (S.tab === 'inbox') v.innerHTML = viewInbox();
   else if (S.tab === 'dash') v.innerHTML = viewDash();
   else if (S.tab === 'set') v.innerHTML = viewSet();
 
@@ -1262,7 +1385,8 @@ function bind() {
       if (f === 'barcode') {
         const r = barcodeCheck(el.value);
         const hint = $('[data-err="barcode"]');
-        if (hint) { hint.textContent = el.value ? r.note : ''; hint.className = 'hint ' + (r.ok ? 'ok' : 'err'); }
+        if (hint) { hint.textContent = el.value ? r.note : ''; hint.className = 'hint ' + hintCls(r.level); }
+        el.classList.toggle('bad', r.level === 'error');
       }
       if (f === 'replaceOfCode') {
         const m = DB.products.find((p) => p.id !== S.draft.id &&
@@ -1367,6 +1491,60 @@ function bind() {
       DB.settings.categories.splice(+b.dataset.delcat, 1);
       if (!DB.settings.categories.length) DB.settings.categories.push('ทั่วไป');
       saveSet(); render();
+    };
+  });
+
+  /* ---- สมุดบาร์โค้ดค้าง ---- */
+  const ibc = $('#ibCode');
+  if (ibc) {
+    ibc.focus();
+    ibc.oninput = () => {
+      ibc.classList.remove('bad');
+      const r = barcodeCheck(ibc.value);
+      const h = $('#ibHint');
+      h.textContent = r.note;
+      h.className = 'hint ' + (r.level === 'error' || r.level === 'warn' ? 'err' : r.level === 'ok' ? 'ok' : '');
+    };
+    ibc.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); ibAdd(); } };
+    const nt = $('#ibNote');
+    if (nt) nt.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); ibAdd(); } };
+  }
+  const iba = $('#ibAdd'); if (iba) iba.onclick = ibAdd;
+
+  $$('[data-ibnew]').forEach((b) => {
+    b.onclick = () => {
+      const x = DB.inbox.find((i) => i.id === b.dataset.ibnew);
+      if (!x) return;
+      newDraft();
+      S.draft.barcode = x.barcode;
+      S.draft.note = x.note ? `จากสมุดบาร์โค้ด: ${x.note}` : '';
+      S.fromInbox = x.id;
+      render();
+      toast('เติมบาร์โค้ดให้แล้ว — กรอกรหัสกับชื่อสินค้าต่อได้เลย');
+    };
+  });
+  $$('[data-ibdone]').forEach((b) => {
+    b.onclick = async () => {
+      const x = DB.inbox.find((i) => i.id === b.dataset.ibdone);
+      if (!x) return;
+      const hit = findByBarcode(x.barcode);
+      x.done = true;
+      x.productId = hit ? hit.id : '';
+      x.updatedAt = nowISO();
+      await save(true);
+      toast('ปิดรายการแล้ว', 'ok');
+      render();
+    };
+  });
+  $$('[data-ibdel]').forEach((b) => {
+    b.onclick = async () => {
+      const id = b.dataset.ibdel;
+      const x = DB.inbox.find((i) => i.id === id);
+      DB.meta.tombstones.push({ id, code: x ? x.barcode : '', name: 'inbox', at: nowISO() });
+      DB.inbox = DB.inbox.filter((i) => i.id !== id);
+      await save(true);
+      toast('ลบแล้ว');
+      render();
     };
   });
 

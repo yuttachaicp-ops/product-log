@@ -89,6 +89,7 @@ const ICONS = {
   pending: svg('<circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 2"/>'),
   dash:    svg('<path d="M3 20h18M7.5 20v-5.5M12 20V8M16.5 20v-8.5"/>'),
   set:     svg('<circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2M12 19.2v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2.8 12h2M19.2 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'),
+  inbox:   svg('<path d="M3.5 6v12M6.5 6v12M9.5 6v8M12.5 6v12M15.5 6v8M18 6v12M20.5 6v12"/>'),
   search:  svg('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>'),
 };
 
@@ -164,22 +165,55 @@ function esc(s) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-/* ตรวจความถูกต้องของบาร์โค้ด EAN-13 / EAN-8 / UPC-A (ถ้าความยาวตรงรูปแบบ) */
+/* ---------- กติกาบาร์โค้ด ----------
+   ความยาวไม่เกิน 13 หลัก (เกินกว่านี้บันทึกไม่ได้)
+   ถ้าความยาวตรงมาตรฐาน EAN-8 / UPC-A / EAN-13 จะตรวจ check digit ให้
+   แต่ถ้าไม่ผ่าน = "เตือน" เฉย ๆ ยังกดบันทึกได้ (รองรับรหัสภายในของบริษัท)
+------------------------------------ */
+const BARCODE_MAX = 13;
+
 function barcodeCheck(code) {
   const c = String(code || '').trim();
-  if (!c) return { ok: true, note: '' };
-  if (!/^\d+$/.test(c)) return { ok: true, note: 'ไม่ใช่ตัวเลขล้วน — ข้ามการตรวจ check digit' };
-  if (![8, 12, 13, 14].includes(c.length)) {
-    return { ok: true, note: `ความยาว ${c.length} หลัก (ไม่ใช่มาตรฐาน EAN/UPC — ข้ามการตรวจ)` };
+  if (!c) return { level: 'none', ok: true, note: '' };
+
+  if (c.length > BARCODE_MAX) {
+    return { level: 'error', ok: false,
+      note: `ยาว ${c.length} หลัก — ต้องไม่เกิน ${BARCODE_MAX} หลัก` };
   }
+  if (!/^\d+$/.test(c)) {
+    return { level: 'warn', ok: true, note: 'มีตัวอักษรที่ไม่ใช่ตัวเลข — บันทึกได้ แต่สแกนอาจไม่ตรง' };
+  }
+  if (![8, 12, 13].includes(c.length)) {
+    return { level: 'info', ok: true,
+      note: `${c.length} หลัก — ไม่ใช่มาตรฐาน EAN/UPC (บันทึกได้ตามปกติ)` };
+  }
+
   const digits = c.split('').map(Number);
   const check = digits.pop();
   let sum = 0;
   digits.reverse().forEach((d, i) => { sum += d * (i % 2 === 0 ? 3 : 1); });
   const calc = (10 - (sum % 10)) % 10;
+  const kind = { 8: 'EAN-8', 12: 'UPC-A', 13: 'EAN-13' }[c.length];
+
   return calc === check
-    ? { ok: true, note: `บาร์โค้ด ${c.length} หลัก ถูกต้อง ✓` }
-    : { ok: false, note: `check digit ไม่ถูกต้อง (ควรเป็น ${calc})` };
+    ? { level: 'ok', ok: true, note: `${kind} ถูกต้อง ✓` }
+    : { level: 'warn', ok: true,
+        note: `หลักตรวจสอบของ ${kind} ควรเป็น ${calc} — บันทึกได้ แต่ช่วยเช็กอีกครั้ง` };
+}
+
+/* ---------- สมุดบาร์โค้ดค้าง (จดไว้ก่อน ยังไม่มีข้อมูลสินค้า) ---------- */
+function blankInbox(barcode = '', note = '') {
+  return {
+    id: uid('ib'),
+    kind: 'inbox',
+    barcode: String(barcode).trim(),
+    note,
+    by: '',
+    createdAt: nowISO(),
+    updatedAt: nowISO(),
+    done: false,
+    productId: '',
+  };
 }
 
 /* สร้างโครงสินค้าเปล่า */

@@ -34,6 +34,13 @@ function toRow(p) {
   };
 }
 
+function inboxRow(x) {
+  return {
+    id: x.id, code: x.barcode || '', name: 'inbox', barcode: x.barcode || '',
+    data: x, deleted: false, updated_at: x.updatedAt || nowISO(),
+  };
+}
+
 function settingsRow() {
   return {
     id: '__settings',
@@ -66,13 +73,28 @@ async function sbPull() {
       }
       return;
     }
-    const idx = DB.products.findIndex((p) => p.id === r.id);
     if (r.deleted) {
-      if (idx >= 0) { DB.products.splice(idx, 1); changed++; }
+      const pi = DB.products.findIndex((p) => p.id === r.id);
+      if (pi >= 0) { DB.products.splice(pi, 1); changed++; }
+      const bi = DB.inbox.findIndex((x) => x.id === r.id);
+      if (bi >= 0) { DB.inbox.splice(bi, 1); changed++; }
       return;
     }
+
     const incoming = r.data;
     if (!incoming || typeof incoming !== 'object') return;
+
+    /* บาร์โค้ดค้าง */
+    if (incoming.kind === 'inbox') {
+      const bi = DB.inbox.findIndex((x) => x.id === r.id);
+      if (bi < 0) { DB.inbox.unshift(incoming); changed++; }
+      else if ((incoming.updatedAt || '') > (DB.inbox[bi].updatedAt || '')) {
+        DB.inbox[bi] = incoming; changed++;
+      }
+      return;
+    }
+
+    const idx = DB.products.findIndex((p) => p.id === r.id);
     migrate(incoming);
     if (idx < 0) {
       DB.products.unshift(incoming);
@@ -92,6 +114,9 @@ async function sbPush() {
   const since = DB.meta.pushedAt || '';
   const dirty = DB.products.filter((p) => (p.updatedAt || '') > since);
   const rows = dirty.map(toRow);
+
+  /* บาร์โค้ดค้างที่เพิ่ง เพิ่ม/แก้ */
+  (DB.inbox || []).filter((x) => (x.updatedAt || '') > since).forEach((x) => rows.push(inboxRow(x)));
 
   /* ตั้งค่า (หมวดสินค้า ฯลฯ) */
   if ((DB.meta.settingsAt || '') > since) rows.push(settingsRow());
