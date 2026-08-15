@@ -1,54 +1,96 @@
 <!DOCTYPE html>
-<html lang="th">
+<html lang="th" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#111318">
+<meta name="theme-color" content="#f6f7f9" id="metaTheme">
 <title>ระบบบันทึกสินค้าใหม่</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<script>
+/* ตั้งธีมก่อนวาดหน้า กันจอกระพริบขาวตอนโหลด */
+(function () {
+  try {
+    var t = localStorage.getItem('pl_theme') || 'auto';
+    var dark = t === 'dark' || (t === 'auto' && matchMedia('(prefers-color-scheme:dark)').matches);
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    document.getElementById && 0;
+  } catch (e) {}
+})();
+</script>
 <style>
-/* ============ 1. ตัวแปรสี / โทเคนดีไซน์ ============ */
+/* ============ 1. โทเคนดีไซน์ — ธีมสว่าง ============ */
 :root{
   --ink:#111318; --ink-2:#3b4048; --ink-3:#6b7280; --ink-4:#9aa1ab;
   --line:#e5e7eb; --line-2:#eef0f3;
-  --bg:#f6f7f9; --card:#ffffff;
-  --brand:#111318; --brand-ink:#ffffff;
+  --bg:#f6f7f9; --card:#ffffff; --card-2:#fafbfc; --inp:#ffffff;
+  --brand:#111318; --brand-hover:#000000; --on-brand:#ffffff;
+  --hover:#eceef1; --hover-2:#f7f8fa;
+  --top:rgba(246,247,249,.88); --mask:rgba(17,19,24,.45);
+  --sw-off:#d3d7dd; --sw-knob:#ffffff;
   --green:#0f8a4d; --green-bg:#e8f6ee;
   --amber:#b45309; --amber-bg:#fdf3e3;
   --blue:#1d4ed8;  --blue-bg:#e8eefc;
-  --red:#b42318;   --red-bg:#fdecea;
+  --red:#b42318;   --red-bg:#fdecea; --red-line:#f3c9c4; --bad-bg:#fffafa; --bad-line:#e6a49c;
   --gray:#6b7280;  --gray-bg:#f1f3f5;
-  --shopee:#ee4d2d; --lazada:#0f156d;
+  --shopee:#ee4d2d; --lazada:#1b2494;
   --r:14px; --r-sm:10px;
   --sh:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.04);
   --sh-2:0 8px 24px rgba(16,24,40,.10);
   --mono:'IBM Plex Mono',ui-monospace,monospace;
+  --logo-filter:none;
+  color-scheme:light;
 }
+
+/* ============ 2. โทเคนดีไซน์ — ธีมมืด ============ */
+html[data-theme="dark"]{
+  --ink:#e9ebee; --ink-2:#c3c8cf; --ink-3:#949aa4; --ink-4:#71787f;
+  --line:#2b3038; --line-2:#232830;
+  --bg:#0e1013; --card:#171a1f; --card-2:#1c2027; --inp:#13161a;
+  --brand:#e9ebee; --brand-hover:#ffffff; --on-brand:#111318;
+  --hover:#232830; --hover-2:#1c2027;
+  --top:rgba(14,16,19,.86); --mask:rgba(0,0,0,.62);
+  --sw-off:#3a4049; --sw-knob:#e9ebee;
+  --green:#5ad48d; --green-bg:#12301f;
+  --amber:#f0b44e; --amber-bg:#332612;
+  --blue:#8fb0ff;  --blue-bg:#16213c;
+  --red:#f38079;   --red-bg:#35191b; --red-line:#5c2b28; --bad-bg:#2a1a1a; --bad-line:#7a3b36;
+  --gray:#9aa1ab;  --gray-bg:#23272e;
+  --shopee:#ff7a5c; --lazada:#8b93ff;
+  --sh:0 1px 2px rgba(0,0,0,.4),0 1px 3px rgba(0,0,0,.3);
+  --sh-2:0 10px 30px rgba(0,0,0,.55);
+  --logo-filter:saturate(1.1) brightness(1.05);
+  color-scheme:dark;
+}
+
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0}
 body{
   font-family:'IBM Plex Sans Thai',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
   background:var(--bg); color:var(--ink); font-size:15px; line-height:1.55;
   -webkit-font-smoothing:antialiased;
+  transition:background .2s ease,color .2s ease;
 }
 button,input,select,textarea{font-family:inherit;font-size:inherit;color:inherit}
 a{color:inherit}
 
-/* ============ 2. โครงหน้า ============ */
+/* ============ 3. โครงหน้า ============ */
 .wrap{max-width:1180px;margin:0 auto;padding:0 16px 96px}
 header.top{
-  position:sticky;top:0;z-index:40;background:rgba(246,247,249,.88);
+  position:sticky;top:0;z-index:40;background:var(--top);
   backdrop-filter:saturate(180%) blur(12px);border-bottom:1px solid var(--line);
 }
-.top-in{max-width:1180px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:12px}
-.logo{width:34px;height:34px;border-radius:9px;background:var(--brand);color:#fff;
+.top-in{max-width:1180px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:10px}
+.logo{width:34px;height:34px;border-radius:9px;background:var(--brand);color:var(--on-brand);
   display:grid;place-items:center;font-weight:700;font-size:15px;flex:none}
 .brand h1{font-size:15px;margin:0;font-weight:600;letter-spacing:-.01em}
 .brand p{margin:0;font-size:11.5px;color:var(--ink-3)}
 .top-sp{flex:1}
+.icon-btn{width:34px;height:34px;border-radius:9px;border:1px solid var(--line);background:var(--card);
+  display:grid;place-items:center;cursor:pointer;font-size:15px;flex:none;transition:.15s;line-height:1}
+.icon-btn:hover{background:var(--hover)}
 
 nav.tabs{display:flex;gap:4px;overflow-x:auto;padding:0 16px 8px;max-width:1180px;margin:0 auto;scrollbar-width:none}
 nav.tabs::-webkit-scrollbar{display:none}
@@ -56,10 +98,10 @@ nav.tabs button{
   border:0;background:transparent;color:var(--ink-3);padding:7px 13px;border-radius:99px;
   font-size:13.5px;font-weight:500;cursor:pointer;white-space:nowrap;transition:.15s
 }
-nav.tabs button:hover{background:#eceef1;color:var(--ink)}
-nav.tabs button.on{background:var(--brand);color:#fff}
+nav.tabs button:hover{background:var(--hover);color:var(--ink)}
+nav.tabs button.on{background:var(--brand);color:var(--on-brand)}
 
-/* ============ 3. การ์ด / ตัวประกอบ ============ */
+/* ============ 4. การ์ด / ตัวประกอบ ============ */
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh)}
 .card.pad{padding:18px}
 .sec-title{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
@@ -69,16 +111,16 @@ nav.tabs button.on{background:var(--brand);color:#fff}
 .g3{grid-template-columns:repeat(3,1fr)}
 .g4{grid-template-columns:repeat(4,1fr)}
 
-.btn{border:1px solid var(--line);background:#fff;padding:9px 15px;border-radius:var(--r-sm);
+.btn{border:1px solid var(--line);background:var(--card);padding:9px 15px;border-radius:var(--r-sm);
   font-size:13.5px;font-weight:500;cursor:pointer;transition:.15s;display:inline-flex;
   align-items:center;gap:7px;justify-content:center}
-.btn:hover{background:#f7f8fa}
-.btn.primary{background:var(--brand);color:#fff;border-color:var(--brand)}
-.btn.primary:hover{background:#000}
-.btn.danger{background:#fff;color:var(--red);border-color:#f3c9c4}
+.btn:hover{background:var(--hover-2)}
+.btn.primary{background:var(--brand);color:var(--on-brand);border-color:var(--brand)}
+.btn.primary:hover{background:var(--brand-hover);border-color:var(--brand-hover)}
+.btn.danger{background:var(--card);color:var(--red);border-color:var(--red-line)}
 .btn.danger:hover{background:var(--red-bg)}
 .btn.ghost{background:transparent;border-color:transparent;color:var(--ink-3)}
-.btn.ghost:hover{background:#eceef1;color:var(--ink)}
+.btn.ghost:hover{background:var(--hover);color:var(--ink)}
 .btn.sm{padding:6px 11px;font-size:12.5px;border-radius:8px}
 .btn:disabled{opacity:.42;cursor:not-allowed}
 .btn.block{width:100%}
@@ -92,32 +134,30 @@ nav.tabs button.on{background:var(--brand);color:#fff}
 .t-gray{background:var(--gray-bg);color:var(--gray)}
 .dot{width:6px;height:6px;border-radius:99px;background:currentColor;flex:none}
 
+/* สีประจำช่องทางขาย (ปรับความสว่างอัตโนมัติตามธีม) */
+.ch-shopee{color:var(--shopee)}
+.ch-lazada{color:var(--lazada)}
+.bd-shopee{border-color:var(--shopee);color:var(--shopee)}
+.bd-lazada{border-color:var(--lazada);color:var(--lazada)}
+
 label.f{display:block;margin-bottom:13px}
 label.f>span{display:block;font-size:12.5px;font-weight:600;color:var(--ink-2);margin-bottom:5px}
 label.f>span em{font-style:normal;color:var(--red)}
 label.f>span i{font-style:normal;font-weight:400;color:var(--ink-4)}
 .inp{width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:var(--r-sm);
-  background:#fff;transition:.15s;font-size:14px}
-.inp:focus{outline:0;border-color:var(--ink);box-shadow:0 0 0 3px rgba(17,19,24,.07)}
-.inp.bad{border-color:#e6a49c;background:#fffafa}
+  background:var(--inp);transition:.15s;font-size:14px}
+.inp:focus{outline:0;border-color:var(--ink-3);box-shadow:0 0 0 3px var(--hover)}
+.inp.bad{border-color:var(--bad-line);background:var(--bad-bg)}
 textarea.inp{resize:vertical;min-height:74px}
 .hint{font-size:11.5px;color:var(--ink-4);margin-top:4px}
 .hint.err{color:var(--red)}
 .hint.ok{color:var(--green)}
 .mono{font-family:var(--mono);letter-spacing:.01em}
 
-/* ============ 4. ตาราง / รายการ ============ */
-.tbl{width:100%;border-collapse:collapse;font-size:13.5px}
-.tbl th{text-align:left;font-size:11.5px;font-weight:600;color:var(--ink-4);
-  text-transform:uppercase;letter-spacing:.05em;padding:10px 12px;border-bottom:1px solid var(--line)}
-.tbl td{padding:11px 12px;border-bottom:1px solid var(--line-2);vertical-align:middle}
-.tbl tr:last-child td{border-bottom:0}
-.tbl tbody tr{cursor:pointer;transition:.12s}
-.tbl tbody tr:hover{background:#fafbfc}
-
+/* ============ 5. ตาราง / รายการ ============ */
 .item{display:flex;gap:12px;align-items:center;padding:13px 14px;border-bottom:1px solid var(--line-2);cursor:pointer}
 .item:last-child{border-bottom:0}
-.item:hover{background:#fafbfc}
+.item:hover{background:var(--card-2)}
 .item-main{flex:1;min-width:0}
 .item-main b{display:block;font-weight:600;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .item-main small{color:var(--ink-3);font-size:12px}
@@ -126,55 +166,55 @@ textarea.inp{resize:vertical;min-height:74px}
 .empty{text-align:center;padding:52px 20px;color:var(--ink-4)}
 .empty b{display:block;color:var(--ink-2);font-size:15px;margin-bottom:5px;font-weight:600}
 
-/* ============ 5. สถิติ / Dashboard ============ */
+/* ============ 6. สถิติ / Dashboard ============ */
 .stat{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:15px 16px}
 .stat .n{font-size:27px;font-weight:700;letter-spacing:-.02em;line-height:1.15}
 .stat .l{font-size:12px;color:var(--ink-3);margin-top:2px}
 .bar{height:9px;background:var(--line-2);border-radius:99px;overflow:hidden;display:flex}
 .bar i{display:block;height:100%}
 
-/* ============ 6. ช่องทางขาย ============ */
-.ch-box{border:1px solid var(--line);border-radius:var(--r);padding:14px;background:#fff}
+/* ============ 7. ช่องทางขาย ============ */
+.ch-box{border:1px solid var(--line);border-radius:var(--r);padding:14px;background:var(--card)}
 .ch-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
 .ch-logo{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;
-  color:#fff;font-weight:700;font-size:14px;flex:none}
+  color:#fff;font-weight:700;font-size:14px;flex:none;filter:var(--logo-filter)}
 .ch-name{font-weight:600;font-size:14.5px}
 .ch-acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:11px}
 .lock{background:var(--amber-bg);color:var(--amber);border-radius:var(--r-sm);
   padding:8px 11px;font-size:12px;margin-top:10px;display:flex;gap:7px;align-items:flex-start}
 
-/* ============ 7. Modal / Toast ============ */
-.mask{position:fixed;inset:0;background:rgba(17,19,24,.45);z-index:90;display:grid;
+/* ============ 8. Modal / Toast ============ */
+.mask{position:fixed;inset:0;background:var(--mask);z-index:90;display:grid;
   place-items:center;padding:16px;overflow-y:auto}
-.modal{background:#fff;border-radius:18px;max-width:520px;width:100%;box-shadow:var(--sh-2);
-  padding:22px;max-height:88vh;overflow-y:auto}
+.modal{background:var(--card);border:1px solid var(--line);border-radius:18px;max-width:520px;
+  width:100%;box-shadow:var(--sh-2);padding:22px;max-height:88vh;overflow-y:auto}
 .modal h3{margin:0 0 4px;font-size:17px}
 .modal p.sub{margin:0 0 16px;color:var(--ink-3);font-size:13px}
 #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:88px;z-index:120;
   display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none}
-.toast{background:var(--ink);color:#fff;padding:10px 17px;border-radius:99px;font-size:13.5px;
-  box-shadow:var(--sh-2);animation:pop .25s ease}
-.toast.err{background:var(--red)}
-.toast.ok{background:var(--green)}
+.toast{background:var(--brand);color:var(--on-brand);padding:10px 17px;border-radius:99px;
+  font-size:13.5px;box-shadow:var(--sh-2);animation:pop .25s ease}
+.toast.err{background:#b42318;color:#fff}
+.toast.ok{background:#0f8a4d;color:#fff}
 @keyframes pop{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 
-/* ============ 8. FAB / ล่างสุด ============ */
-.fab{position:fixed;right:20px;bottom:24px;z-index:50;background:var(--brand);color:#fff;
+/* ============ 9. FAB ============ */
+.fab{position:fixed;right:20px;bottom:24px;z-index:50;background:var(--brand);color:var(--on-brand);
   border:0;border-radius:99px;padding:14px 22px;font-size:14.5px;font-weight:600;
   box-shadow:var(--sh-2);cursor:pointer;display:flex;align-items:center;gap:8px}
-.fab:hover{background:#000}
+.fab:hover{background:var(--brand-hover)}
 
-/* ============ 9. เส้นเวลา ============ */
+/* ============ 10. เส้นเวลา ============ */
 .tl{position:relative;padding-left:22px}
 .tl:before{content:'';position:absolute;left:5px;top:6px;bottom:6px;width:2px;background:var(--line)}
 .tl-i{position:relative;padding-bottom:14px}
 .tl-i:before{content:'';position:absolute;left:-21px;top:6px;width:10px;height:10px;
-  border-radius:99px;background:#fff;border:2px solid var(--ink-4)}
+  border-radius:99px;background:var(--card);border:2px solid var(--ink-4)}
 .tl-i.hi:before{border-color:var(--ink);background:var(--ink)}
 .tl-i b{font-size:13.5px;font-weight:600;display:block}
 .tl-i small{font-size:11.5px;color:var(--ink-4)}
 
-/* ============ 10. เบ็ดเตล็ด ============ */
+/* ============ 11. เบ็ดเตล็ด ============ */
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .row.end{justify-content:flex-end}
 .sp{flex:1}
@@ -184,30 +224,32 @@ textarea.inp{resize:vertical;min-height:74px}
 .kv span{color:var(--ink-3)}
 .kv b{font-weight:600;text-align:right}
 .filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.filters select,.filters input{padding:8px 11px;border:1px solid var(--line);border-radius:var(--r-sm);background:#fff;font-size:13px}
+.filters select,.filters input{padding:8px 11px;border:1px solid var(--line);
+  border-radius:var(--r-sm);background:var(--inp);font-size:13px}
 .search{position:relative;flex:1;min-width:190px}
 .search input{width:100%;padding:10px 13px 10px 36px;border:1px solid var(--line);
-  border-radius:var(--r-sm);background:#fff;font-size:14px}
-.search input:focus{outline:0;border-color:var(--ink);box-shadow:0 0 0 3px rgba(17,19,24,.07)}
+  border-radius:var(--r-sm);background:var(--inp);font-size:14px}
+.search input:focus{outline:0;border-color:var(--ink-3);box-shadow:0 0 0 3px var(--hover)}
 .search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);opacity:.4}
 .seg{display:inline-flex;background:var(--gray-bg);border-radius:var(--r-sm);padding:3px;gap:2px}
 .seg button{border:0;background:transparent;padding:7px 14px;border-radius:8px;font-size:13px;
   font-weight:500;cursor:pointer;color:var(--ink-3)}
-.seg button.on{background:#fff;color:var(--ink);box-shadow:var(--sh)}
+.seg button.on{background:var(--card);color:var(--ink);box-shadow:var(--sh)}
+html[data-theme="dark"] .seg{background:#0f1216}
+html[data-theme="dark"] .seg button.on{background:#2f353e;color:var(--ink)}
 .sw{position:relative;display:inline-block;width:42px;height:24px;flex:none}
 .sw input{opacity:0;width:0;height:0}
-.sw i{position:absolute;inset:0;background:#d3d7dd;border-radius:99px;transition:.2s;cursor:pointer}
-.sw i:before{content:'';position:absolute;height:18px;width:18px;left:3px;top:3px;background:#fff;
-  border-radius:99px;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
-.sw input:checked+i{background:var(--ink)}
-.sw input:checked+i:before{transform:translateX(18px)}
+.sw i{position:absolute;inset:0;background:var(--sw-off);border-radius:99px;transition:.2s;cursor:pointer}
+.sw i:before{content:'';position:absolute;height:18px;width:18px;left:3px;top:3px;
+  background:var(--sw-knob);border-radius:99px;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.25)}
+.sw input:checked+i{background:var(--brand)}
+.sw input:checked+i:before{transform:translateX(18px);background:var(--on-brand)}
 
 @media(max-width:760px){
   .sync-txt{display:none}
   .g4{grid-template-columns:repeat(2,1fr)}
   .g3{grid-template-columns:1fr}
   .g2{grid-template-columns:1fr}
-  .tbl thead{display:none}
   .wrap{padding-bottom:110px}
   .fab{right:16px;bottom:18px;padding:13px 19px}
 }
@@ -224,6 +266,7 @@ textarea.inp{resize:vertical;min-height:74px}
     </div>
     <div class="top-sp"></div>
     <span class="pill t-gray" id="syncChip" title="สถานะการซิงก์">···</span>
+    <button class="icon-btn" id="btnTheme" title="สลับธีมสว่าง / มืด">☾</button>
     <button class="btn sm" id="btnQuickSearch">ค้นหา</button>
   </div>
   <nav class="tabs" id="tabs"></nav>

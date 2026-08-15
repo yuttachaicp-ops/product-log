@@ -142,6 +142,53 @@ function toast(msg, kind = '') {
 
 function closeModal() { $('#modal').innerHTML = ''; }
 
+/* ============================================================
+   ธีมสว่าง / มืด — เก็บไว้เฉพาะเครื่องนี้ (ไม่ซิงก์ข้ามเครื่อง)
+   ค่า: 'auto' ตามเครื่อง · 'light' สว่าง · 'dark' มืด
+   ============================================================ */
+const THEME_KEY = 'pl_theme';
+
+function getTheme() {
+  try { return localStorage.getItem(THEME_KEY) || 'auto'; } catch (e) { return 'auto'; }
+}
+
+function isDark(t) {
+  const v = t || getTheme();
+  if (v === 'dark') return true;
+  if (v === 'light') return false;
+  return window.matchMedia && matchMedia('(prefers-color-scheme:dark)').matches;
+}
+
+function applyTheme() {
+  const dark = isDark();
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  const m = $('#metaTheme');
+  if (m) m.setAttribute('content', dark ? '#0e1013' : '#f6f7f9');
+  const b = $('#btnTheme');
+  if (b) {
+    b.textContent = dark ? '☀' : '☾';
+    b.title = { auto: 'ธีม: ตามเครื่อง', light: 'ธีม: สว่าง', dark: 'ธีม: มืด' }[getTheme()];
+  }
+}
+
+function setTheme(v) {
+  try { localStorage.setItem(THEME_KEY, v); } catch (e) {}
+  applyTheme();
+}
+
+/* ปุ่มบนหัวเว็บ: สลับไปตรงข้ามกับที่เห็นอยู่ */
+function toggleTheme() {
+  setTheme(isDark() ? 'light' : 'dark');
+  toast(isDark() ? 'ธีมมืด' : 'ธีมสว่าง');
+  if (S.tab === 'set') render();
+}
+
+if (window.matchMedia) {
+  matchMedia('(prefers-color-scheme:dark)').addEventListener('change', () => {
+    if (getTheme() === 'auto') applyTheme();
+  });
+}
+
 function modal(html) {
   $('#modal').innerHTML = `<div class="mask" data-mask="1"><div class="modal">${html}</div></div>`;
 }
@@ -429,7 +476,7 @@ function chBadge(p, k) {
   if (st === 'off') return '';
   const s = CH_STATUS[st];
   return `<span class="pill t-${s.tone}" title="${CHANNELS[k].label} · ${s.label}">
-    <b style="color:${CHANNELS[k].color}">${CHANNELS[k].label}</b> · ${s.label}</span>`;
+    <b class="ch-${k}">${CHANNELS[k].label}</b> · ${s.label}</span>`;
 }
 
 function productRow(p) {
@@ -616,7 +663,7 @@ function chForm() {
     const on = c.status !== 'off';
     return `<div class="ch-box">
       <div class="ch-head">
-        <div class="ch-logo" style="background:${CHANNELS[k].color}">${CHANNELS[k].icon}</div>
+        <div class="ch-logo" style="background:var(--${k})">${CHANNELS[k].icon}</div>
         <div class="ch-name">${CHANNELS[k].label}</div>
         <div class="sp"></div>
         <label class="sw"><input type="checkbox" data-ch="${k}"${on ? ' checked' : ''}><i></i></label>
@@ -679,7 +726,7 @@ function chDetail(p, k) {
   const acts = CH_ACTIONS[c.status] || [];
   return `<div class="ch-box">
     <div class="ch-head">
-      <div class="ch-logo" style="background:${CHANNELS[k].color}">${CHANNELS[k].icon}</div>
+      <div class="ch-logo" style="background:var(--${k})">${CHANNELS[k].icon}</div>
       <div><div class="ch-name">${CHANNELS[k].label}</div>
         <div style="margin-top:2px">${statusPill(c.status)}</div></div>
     </div>
@@ -712,7 +759,7 @@ function viewPending() {
   <div class="sec-title">คิวรอคอนเฟิร์ม · ${list.length} รายการ</div>
   <div class="card">
     ${list.map(({ p, k, c }) => `<div class="item">
-      <div class="ch-logo" style="background:${CHANNELS[k].color}">${CHANNELS[k].icon}</div>
+      <div class="ch-logo" style="background:var(--${k})">${CHANNELS[k].icon}</div>
       <div class="item-main" data-open="${p.id}">
         <b>${esc(p.name)}</b>
         <small class="mono">${esc(p.code)} · ${CHANNELS[k].label} · ขอเมื่อ ${fmtAgo(c.requestedAt)}</small>
@@ -731,8 +778,8 @@ function viewPending() {
     </div>
     <div class="row" style="flex:none;gap:6px">
       ${CHANNEL_KEYS.filter((k) => p.channels[k].status === 'confirmed')
-        .map((k) => `<button class="btn sm" data-move="${p.id}|${k}|listed"
-          style="border-color:${CHANNELS[k].color};color:${CHANNELS[k].color}">ลง ${CHANNELS[k].label} แล้ว</button>`).join('')}
+        .map((k) => `<button class="btn sm bd-${k}" data-move="${p.id}|${k}|listed"
+          style="">ลง ${CHANNELS[k].label} แล้ว</button>`).join('')}
     </div>
   </div>`).join('')}</div>` : ''}`;
 }
@@ -786,7 +833,7 @@ function viewDash() {
       const sum = Math.max(1, s.pending + s.confirmed + s.listed + s.rejected);
       return `<div class="card pad">
         <div class="ch-head">
-          <div class="ch-logo" style="background:${CHANNELS[k].color}">${CHANNELS[k].icon}</div>
+          <div class="ch-logo" style="background:var(--${k})">${CHANNELS[k].icon}</div>
           <div class="ch-name">${CHANNELS[k].label}</div>
           <div class="sp"></div>
           <b style="font-size:19px">${s.listed}</b>
@@ -829,6 +876,18 @@ function viewDash() {
    ============================================================ */
 function viewSet() {
   return `
+  <div class="sec-title">หน้าตา</div>
+  <div class="card pad">
+    <div class="row" style="justify-content:space-between">
+      <div><b style="font-size:14px">ธีม</b>
+        <div class="hint">ตั้งแยกแต่ละเครื่อง ไม่ซิงก์ข้ามเครื่อง</div></div>
+      <div class="seg">
+        ${[['auto', 'ตามเครื่อง'], ['light', 'สว่าง'], ['dark', 'มืด']].map(([v, t]) =>
+          `<button data-theme-set="${v}" class="${getTheme() === v ? 'on' : ''}">${t}</button>`).join('')}
+      </div>
+    </div>
+  </div>
+
   <div class="sec-title">ผู้ใช้งาน</div>
   <div class="card pad">
     <label class="f" style="margin-bottom:0"><span>ชื่อผู้บันทึก <i>(ใช้เป็นค่าเริ่มต้นเวลาคอนเฟิร์ม)</i></span>
@@ -1146,6 +1205,11 @@ function bind() {
     };
   });
 
+  /* ---- ธีม ---- */
+  $$('[data-theme-set]').forEach((b) => {
+    b.onclick = () => { setTheme(b.dataset.themeSet); render(); };
+  });
+
   /* ---- ซิงก์ ---- */
   const sy = $('#btnSyncNow'); if (sy) sy.onclick = () => syncNow(false);
   const so = $('#setSync');
@@ -1177,7 +1241,9 @@ function bind() {
 /* ---- ปุ่มระดับหน้า ---- */
 document.addEventListener('DOMContentLoaded', () => {
   $('#fab').onclick = newDraft;
+  $('#btnTheme').onclick = toggleTheme;
   $('#syncChip').onclick = () => syncNow(false);
+  applyTheme();
   $('#btnQuickSearch').onclick = () => {
     S.tab = 'list'; render();
     setTimeout(() => { const q = $('#q'); if (q) q.focus(); }, 60);
@@ -1192,6 +1258,7 @@ document.addEventListener('DOMContentLoaded', () => {
    ส่วนที่ 17 — เริ่มทำงาน
    ============================================================ */
 (async function boot() {
+  applyTheme();
   await loadDB();
   if (typeof DB.settings.syncOn === 'boolean') SYNC.on = DB.settings.syncOn;
   SYNC.state = SYNC.on ? 'idle' : 'off';
