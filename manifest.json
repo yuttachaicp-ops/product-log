@@ -1,51 +1,17 @@
 {
-  "name": "บันทึกสินค้า · Prathan",
+  "name": "ระบบบันทึกสินค้าใหม่",
   "short_name": "บันทึกสินค้า",
-  "description": "บันทึกสินค้าเข้าใหม่ / สินค้าที่มาแทนรุ่นเดิม และคิวรอถ่ายรูป พร้อมแนบรูปภาพ ใช้งานออฟไลน์ได้",
-  "lang": "th",
-  "dir": "ltr",
-  "start_url": "./",
+  "description": "บันทึกสินค้าใหม่ รหัส บาร์โค้ด และสถานะการลงขาย Shopee / Lazada",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#ffffff",
-  "theme_color": "#0a0a0a",
-  "categories": [
-    "business",
-    "productivity"
-  ],
+  "background_color": "#f6f7f9",
+  "theme_color": "#111318",
+  "lang": "th",
   "icons": [
-    {
-      "src": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgZmlsbD0iIzBhMGEwYSIvPjxyZWN0IHg9IjExNiIgeT0iMTU2IiB3aWR0aD0iMjgwIiBoZWlnaHQ9IjIxMCIgcng9IjI4IiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMzAiLz48Y2lyY2xlIGN4PSIyNTYiIGN5PSIyNjEiIHI9IjUyIiBmaWxsPSIjZmZmIi8+PHJlY3QgeD0iMjEwIiB5PSIxMjAiIHdpZHRoPSI5MiIgaGVpZ2h0PSI0MCIgcng9IjE0IiBmaWxsPSIjZmZmIi8+PC9zdmc+",
-      "sizes": "192x192",
-      "type": "image/svg+xml",
-      "purpose": "any"
-    },
-    {
-      "src": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgZmlsbD0iIzBhMGEwYSIvPjxyZWN0IHg9IjExNiIgeT0iMTU2IiB3aWR0aD0iMjgwIiBoZWlnaHQ9IjIxMCIgcng9IjI4IiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMzAiLz48Y2lyY2xlIGN4PSIyNTYiIGN5PSIyNjEiIHI9IjUyIiBmaWxsPSIjZmZmIi8+PHJlY3QgeD0iMjEwIiB5PSIxMjAiIHdpZHRoPSI5MiIgaGVpZ2h0PSI0MCIgcng9IjE0IiBmaWxsPSIjZmZmIi8+PC9zdmc+",
-      "sizes": "512x512",
-      "type": "image/svg+xml",
-      "purpose": "any"
-    },
-    {
-      "src": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgZmlsbD0iIzBhMGEwYSIvPjxyZWN0IHg9IjExNiIgeT0iMTU2IiB3aWR0aD0iMjgwIiBoZWlnaHQ9IjIxMCIgcng9IjI4IiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMzAiLz48Y2lyY2xlIGN4PSIyNTYiIGN5PSIyNjEiIHI9IjUyIiBmaWxsPSIjZmZmIi8+PHJlY3QgeD0iMjEwIiB5PSIxMjAiIHdpZHRoPSI5MiIgaGVpZ2h0PSI0MCIgcng9IjE0IiBmaWxsPSIjZmZmIi8+PC9zdmc+",
-      "sizes": "512x512",
-      "type": "image/svg+xml",
-      "purpose": "maskable"
-    }
-  ],
-  "shortcuts": [
-    {
-      "name": "เพิ่มสินค้า",
-      "url": "./?add=1"
-    },
-    {
-      "name": "คิวถ่ายรูป",
-      "url": "./?view=queue"
-    },
-    {
-      "name": "บาร์โค้ดที่ต้องจัดการ",
-      "url": "./?view=barcode"
-    }
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }
