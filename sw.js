@@ -1,7 +1,7 @@
 /* Service Worker — ให้ใช้งานออฟไลน์ได้ */
-const CACHE = 'product-log-v1';
+const CACHE = 'product-log-v2';
 const FILES = [
-  './', './index.html', './config.js', './app.js', './manifest.json',
+  './', './index.html', './config.js', './sync.js', './app.js', './manifest.json',
   './icon-192.png', './icon-512.png',
 ];
 

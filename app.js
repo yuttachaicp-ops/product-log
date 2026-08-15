@@ -50,7 +50,10 @@ const DEFAULT_DB = {
     requireConfirmBy: true,   // ต้องกรอกชื่อผู้คอนเฟิร์ม
     autoArchiveOld: true,     // เปลี่ยนแทนตัวเก่า → เก็บตัวเก่าเข้าคลังอัตโนมัติ
   },
-  meta: { createdAt: nowISO(), savedAt: '' },
+  meta: {
+    createdAt: nowISO(), savedAt: '',
+    lastPull: '', pushedAt: '', settingsAt: '', tombstones: [],
+  },
 };
 
 let DB = JSON.parse(JSON.stringify(DEFAULT_DB));
@@ -87,6 +90,8 @@ async function loadDB() {
     if (d && typeof d === 'object') {
       DB = Object.assign(JSON.parse(JSON.stringify(DEFAULT_DB)), d);
       DB.settings = Object.assign({}, DEFAULT_DB.settings, d.settings || {});
+      DB.meta = Object.assign({}, DEFAULT_DB.meta, d.meta || {});
+      if (!Array.isArray(DB.meta.tombstones)) DB.meta.tombstones = [];
       DB.products = Array.isArray(d.products) ? d.products : [];
       DB.products.forEach(migrate);
     }
@@ -103,8 +108,9 @@ function migrate(p) {
 }
 
 let _saveT = null;
-async function save(immediate) {
+async function save(immediate, noSync) {
   DB.meta.savedAt = nowISO();
+  if (!noSync && typeof scheduleSync === 'function') scheduleSync();
   const doIt = async () => {
     try { await idbSet(APP.key, DB); }
     catch (e) { toast('บันทึกไม่สำเร็จ: ' + e.message, 'err'); }
@@ -856,6 +862,29 @@ function viewSet() {
     </div>
   </div>
 
+  <div class="sec-title">ฐานข้อมูลกลาง (ซิงก์ทุกเครื่อง)</div>
+  <div class="card pad">
+    <div class="row" style="justify-content:space-between;padding:6px 0">
+      <div><b style="font-size:14px">เปิดการซิงก์</b>
+        <div class="hint">ข้อมูลจะตรงกันทุกเครื่องที่เปิดลิงก์นี้ ปิดไว้ = เก็บเฉพาะในเครื่องนี้</div></div>
+      <label class="sw"><input type="checkbox" id="setSync"${SYNC.on ? ' checked' : ''}><i></i></label>
+    </div>
+    <div class="hr"></div>
+    <div class="kv"><span>สถานะ</span><b>${SYNC.state === 'ok' ? 'ซิงก์แล้ว ' + fmtAgo(SYNC.lastAt)
+      : SYNC.state === 'syncing' ? 'กำลังซิงก์…'
+      : SYNC.state === 'off' ? 'ปิดอยู่'
+      : SYNC.state === 'error' ? '<span style="color:var(--red)">' + esc(SYNC.lastErr) + '</span>'
+      : 'ยังไม่ได้ซิงก์'}</b></div>
+    <div class="kv"><span>ซิงก์ล่าสุด</span><b>${fmtDateTime(SYNC.lastAt)}</b></div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn primary" id="btnSyncNow">ซิงก์เดี๋ยวนี้</button>
+    </div>
+    <div class="hint" style="margin-top:12px">
+      ซิงก์อัตโนมัติทุกครั้งที่บันทึก · ทุก 1 นาที · และตอนกลับมาเปิดหน้าเว็บ<br>
+      ถ้าแก้รายการเดียวกันพร้อมกันจากสองเครื่อง ระบบจะยึด<b>ฉบับที่แก้ล่าสุด</b>
+    </div>
+  </div>
+
   <div class="sec-title">ข้อมูล</div>
   <div class="card pad">
     <div class="grid g2">
@@ -975,6 +1004,7 @@ function render() {
 
   $('#fab').style.display = (S.tab === 'form') ? 'none' : 'flex';
   bind();
+  if (typeof paintSync === 'function') paintSync();
   window.scrollTo({ top: 0 });
 }
 
@@ -1057,6 +1087,7 @@ function bind() {
     const ok = await confirmBox({ title: 'ลบรายการนี้?', sub: `<b>${esc(S.draft.name)}</b><br>ลบแล้วกู้คืนไม่ได้`, ok: 'ลบ', danger: true });
     if (!ok) return;
     await backup();
+    DB.meta.tombstones.push({ id: S.draft.id, code: S.draft.code, name: S.draft.name, at: nowISO() });
     DB.products = DB.products.filter((p) => p.id !== S.draft.id);
     await save(true);
     S.draft = null; S.viewId = null; S.tab = 'list';
@@ -1093,26 +1124,38 @@ function bind() {
   });
 
   /* ---- ตั้งค่า ---- */
+  const saveSet = () => { DB.meta.settingsAt = nowISO(); save(); };
   const su = $('#setUser');
-  if (su) su.oninput = () => { DB.settings.user = su.value; save(); };
+  if (su) su.oninput = () => { DB.settings.user = su.value; saveSet(); };
   const sr = $('#setReq');
-  if (sr) sr.onchange = () => { DB.settings.requireConfirmBy = sr.checked; save(); };
+  if (sr) sr.onchange = () => { DB.settings.requireConfirmBy = sr.checked; saveSet(); };
   const sa = $('#setArc');
-  if (sa) sa.onchange = () => { DB.settings.autoArchiveOld = sa.checked; save(); };
+  if (sa) sa.onchange = () => { DB.settings.autoArchiveOld = sa.checked; saveSet(); };
   const ac = $('#btnAddCat');
   if (ac) ac.onclick = () => {
     const v = $('#newCat').value.trim();
     if (!v) return;
     if (DB.settings.categories.includes(v)) return toast('มีหมวดนี้แล้ว', 'err');
-    DB.settings.categories.push(v); save(); render();
+    DB.settings.categories.push(v); saveSet(); render();
   };
   $$('[data-delcat]').forEach((b) => {
     b.onclick = () => {
       DB.settings.categories.splice(+b.dataset.delcat, 1);
       if (!DB.settings.categories.length) DB.settings.categories.push('ทั่วไป');
-      save(); render();
+      saveSet(); render();
     };
   });
+
+  /* ---- ซิงก์ ---- */
+  const sy = $('#btnSyncNow'); if (sy) sy.onclick = () => syncNow(false);
+  const so = $('#setSync');
+  if (so) so.onchange = () => {
+    SYNC.on = so.checked;
+    DB.settings.syncOn = so.checked;
+    SYNC.state = so.checked ? 'idle' : 'off';
+    save(true, true);
+    if (so.checked) syncNow(false); else { paintSync(); render(); }
+  };
   const bj = $('#btnJson'); if (bj) bj.onclick = exportJSON;
   const bi = $('#btnImport'); if (bi) bi.onclick = importJSON;
   const bw = $('#btnWipe');
@@ -1134,6 +1177,7 @@ function bind() {
 /* ---- ปุ่มระดับหน้า ---- */
 document.addEventListener('DOMContentLoaded', () => {
   $('#fab').onclick = newDraft;
+  $('#syncChip').onclick = () => syncNow(false);
   $('#btnQuickSearch').onclick = () => {
     S.tab = 'list'; render();
     setTimeout(() => { const q = $('#q'); if (q) q.focus(); }, 60);
@@ -1149,5 +1193,8 @@ document.addEventListener('DOMContentLoaded', () => {
    ============================================================ */
 (async function boot() {
   await loadDB();
+  if (typeof DB.settings.syncOn === 'boolean') SYNC.on = DB.settings.syncOn;
+  SYNC.state = SYNC.on ? 'idle' : 'off';
   render();
+  if (SYNC.on) syncNow(true);
 })();

@@ -13,6 +13,17 @@ const APP = {
   backupKey: 'backup',
 };
 
+/* ---------- ฐานข้อมูลกลาง (Supabase) ----------
+   key นี้เป็น publishable key ออกแบบมาให้เปิดเผยได้ในหน้าเว็บ
+   สิทธิ์ถูกคุมด้วย Row Level Security ฝั่งเซิร์ฟเวอร์:
+   อ่าน/เพิ่ม/แก้ ได้ · ลบทิ้งถาวรไม่ได้
+----------------------------------------------- */
+const SB = {
+  url: 'https://qsgeewcjzelzsusvdxsd.supabase.co',
+  key: 'sb_publishable_-AF5XP1z-SpMEwk05utH_Q_YFarQqSu',
+  table: 'pl_items',
+};
+
 /* ---------- ประเภทการบันทึกสินค้า ---------- */
 const PRODUCT_TYPES = {
   new: { label: 'สินค้าใหม่', short: 'New', color: 'green', desc: 'สินค้าที่ไม่เคยมีในระบบมาก่อน' },

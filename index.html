@@ -203,6 +203,7 @@ textarea.inp{resize:vertical;min-height:74px}
 .sw input:checked+i:before{transform:translateX(18px)}
 
 @media(max-width:760px){
+  .sync-txt{display:none}
   .g4{grid-template-columns:repeat(2,1fr)}
   .g3{grid-template-columns:1fr}
   .g2{grid-template-columns:1fr}
@@ -222,6 +223,7 @@ textarea.inp{resize:vertical;min-height:74px}
       <p id="subline">กำลังโหลด…</p>
     </div>
     <div class="top-sp"></div>
+    <span class="pill t-gray" id="syncChip" title="สถานะการซิงก์">···</span>
     <button class="btn sm" id="btnQuickSearch">ค้นหา</button>
   </div>
   <nav class="tabs" id="tabs"></nav>
@@ -234,6 +236,7 @@ textarea.inp{resize:vertical;min-height:74px}
 <div id="toast"></div>
 
 <script src="config.js"></script>
+<script src="sync.js"></script>
 <script src="app.js"></script>
 <script>
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
