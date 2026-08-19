@@ -643,7 +643,9 @@ function listBody() {
   const list = filtered();
   if (!list.length) {
     return `<div class="sec-title">ผลลัพธ์</div><div class="card"><div class="empty">
-      <b>ไม่พบสินค้าที่ตรงเงื่อนไข</b>ลองล้างตัวกรอง หรือกดปุ่ม “＋ เพิ่มสินค้า”</div></div>`;
+      <b>ไม่พบสินค้าที่ตรงเงื่อนไข</b>ลองล้างตัวกรอง หรือกดปุ่ม “＋ เพิ่มสินค้า”
+      <div style="margin-top:14px"><button class="btn" id="btnImpFile2">นำเข้าจากไฟล์ Shopee / Lazada</button></div>
+      </div></div>`;
   }
   const head = `<div class="sec-title">ผลลัพธ์ · ${list.length} รายการ</div>`;
 
@@ -1226,6 +1228,267 @@ function exportRecent() {
 }
 
 /* ============================================================
+   ส่วนที่ 13.8 — นำเข้าไฟล์สินค้าจาก Shopee / Lazada
+   ============================================================ */
+const IMP_FIELDS = [
+  ['code', 'รหัสสินค้า (SKU)', true],
+  ['barcode', 'บาร์โค้ด', false],
+  ['name', 'ชื่อสินค้า', true],
+  ['price', 'ราคาขาย', false],
+];
+
+function newImport() {
+  S.imp = { step: 'pick', platform: 'shopee', file: '', rows: null, head: 0, map: null, plan: null, busy: false, result: null };
+  S.tab = 'import';
+  render();
+}
+
+/* หาสินค้าเดิม: รหัสก่อน แล้วค่อยบาร์โค้ด */
+function matchProduct(code, barcode) {
+  const c = String(code || '').trim().toLowerCase();
+  if (c) {
+    const hit = DB.products.find((p) => (p.code || '').trim().toLowerCase() === c);
+    if (hit) return { p: hit, by: 'รหัสสินค้า' };
+  }
+  const b = String(barcode || '').trim();
+  if (b) {
+    const hit = DB.products.find((p) => (p.barcode || '').trim() === b);
+    if (hit) return { p: hit, by: 'บาร์โค้ด' };
+  }
+  return null;
+}
+
+/* อ่านแถวข้อมูลตาม mapping แล้ววางแผนว่าจะเพิ่ม/อัปเดตอะไรบ้าง */
+function buildPlan() {
+  const I = S.imp;
+  const rows = I.rows.slice(I.head + 1);
+  const m = I.map;
+  const seen = new Set();
+  const plan = { create: [], update: [], skipped: 0, dupInFile: 0, longBarcode: 0 };
+
+  rows.forEach((r) => {
+    const code = (m.code >= 0 ? r[m.code] : '') || '';
+    let barcode = (m.barcode >= 0 ? r[m.barcode] : '') || '';
+    const name = (m.name >= 0 ? r[m.name] : '') || '';
+    const price = (m.price >= 0 ? r[m.price] : '') || '';
+
+    if (!code.trim() && !barcode.trim()) { plan.skipped++; return; }
+
+    const key = (code.trim().toLowerCase() || 'bc:' + barcode.trim());
+    if (seen.has(key)) { plan.dupInFile++; return; }
+    seen.add(key);
+
+    let longBc = '';
+    if (barcode.trim().length > BARCODE_MAX) { longBc = barcode.trim(); barcode = ''; plan.longBarcode++; }
+
+    const hit = matchProduct(code, barcode);
+    const rec = { code: code.trim(), barcode: barcode.trim(), name: name.trim(), price: price.trim(), longBc };
+    if (hit) plan.update.push({ ...rec, id: hit.p.id, by: hit.by, existing: hit.p });
+    else plan.create.push(rec);
+  });
+
+  return plan;
+}
+
+async function runImport() {
+  const I = S.imp;
+  const plan = I.plan;
+  const k = I.platform;
+  const stamp = nowISO();
+  const src = k === 'none' ? 'ไฟล์' : CHANNELS[k].label;
+
+  I.busy = true;
+  render();
+  await backup();
+
+  /* เพิ่มใหม่ */
+  plan.create.forEach((r) => {
+    const p = blankProduct();
+    p.code = r.code || ('BC-' + r.barcode);
+    p.barcode = r.barcode;
+    p.name = r.name || '(ไม่มีชื่อในไฟล์)';
+    p.price = r.price;
+    p.createdBy = DB.settings.user || '';
+    p.createdAt = stamp;
+    p.updatedAt = stamp;
+    p.note = `นำเข้าจากไฟล์ ${src}` + (r.longBc ? `\nบาร์โค้ดในไฟล์ (ยาวเกิน ${BARCODE_MAX} หลัก): ${r.longBc}` : '');
+    if (k !== 'none') {
+      p.channels[k].status = 'listed';
+      p.channels[k].note = `นำเข้าจากไฟล์ ${src}`;
+    }
+    addHistory(p, 'create', `นำเข้าจากไฟล์ ${src}`);
+    DB.products.unshift(p);
+  });
+
+  /* อัปเดตของเดิม — ไม่ทับชื่อ/รหัสเดิม เติมเฉพาะที่ว่าง */
+  plan.update.forEach((r) => {
+    const p = byId(r.id);
+    if (!p) return;
+    let touched = false;
+    if (!p.barcode && r.barcode) { p.barcode = r.barcode; touched = true; }
+    if (!p.price && r.price) { p.price = r.price; touched = true; }
+    if (k !== 'none' && p.channels[k].status !== 'listed') {
+      p.channels[k].status = 'listed';
+      p.channels[k].note = `นำเข้าจากไฟล์ ${src}`;
+      addHistory(p, 'channel', `${CHANNELS[k].label}: ตั้งเป็นลงขายแล้ว (นำเข้าจากไฟล์)`);
+      touched = true;
+    }
+    if (touched) p.updatedAt = nowISO();
+  });
+
+  await save(true);
+  I.busy = false;
+  I.result = {
+    created: plan.create.length,
+    updated: plan.update.length,
+    skipped: plan.skipped,
+    dupInFile: plan.dupInFile,
+    longBarcode: plan.longBarcode,
+    src,
+  };
+  I.step = 'done';
+  toast(`นำเข้าสำเร็จ · เพิ่ม ${plan.create.length} · อัปเดต ${plan.update.length}`, 'ok');
+  render();
+}
+
+function viewImport() {
+  const I = S.imp || (S.imp = { step: 'pick', platform: 'shopee' });
+
+  /* ---- ขั้นที่ 1: เลือกแพลตฟอร์มและไฟล์ ---- */
+  if (I.step === 'pick') {
+    return `
+    <div class="row" style="margin:20px 0 4px">
+      <button class="btn sm ghost" id="impBack">← กลับ</button>
+    </div>
+    <div class="sec-title">นำเข้าสินค้าจากไฟล์</div>
+    <div class="card pad">
+      <p style="margin:0 0 16px;font-size:13.5px;color:var(--ink-3)">
+        ดาวน์โหลดไฟล์รายการสินค้าจาก Seller Centre แล้วเลือกไฟล์ที่นี่
+        ระบบจะอ่าน <b>รหัสสินค้า · บาร์โค้ด · ชื่อสินค้า</b> เข้ามาเป็นฐานข้อมูลให้
+        รองรับ <b>.xlsx</b> และ <b>.csv</b>
+      </p>
+
+      <div style="font-size:12.5px;font-weight:600;color:var(--ink-2);margin-bottom:7px">
+        ไฟล์นี้มาจากช่องทางไหน</div>
+      <div class="grid g3" style="gap:10px;margin-bottom:18px">
+        ${[...CHANNEL_KEYS, 'none'].map((k) => `
+          <button class="btn" data-impch="${k}" style="padding:14px;flex-direction:column;align-items:flex-start;
+            ${I.platform === k ? 'border-color:var(--ink);box-shadow:0 0 0 2px rgba(128,128,128,.18)' : ''}">
+            <b style="font-size:14.5px;${k !== 'none' ? `color:var(--${k})` : ''}">
+              ${k === 'none' ? 'ไม่ระบุ' : CHANNELS[k].label}</b>
+            <small style="color:var(--ink-3);font-weight:400">
+              ${k === 'none' ? 'เก็บเป็นข้อมูลอย่างเดียว' : `ตั้งเป็น “ลงขายแล้ว” บน ${CHANNELS[k].label}`}</small>
+          </button>`).join('')}
+      </div>
+
+      <input type="file" id="impFile" accept=".xlsx,.xlsm,.csv,.txt" style="display:none">
+      <button class="btn primary block" id="impPick" style="padding:16px">เลือกไฟล์จากเครื่อง</button>
+      <div class="hint" id="impMsg" style="margin-top:10px"></div>
+
+      <div class="lock" style="margin-top:16px"><b>ℹ</b><div>
+        ไฟล์ถูกอ่านในเครื่องคุณเท่านั้น ไม่ได้อัปโหลดไปที่ไหน ·
+        ถ้าสินค้ามีอยู่แล้วระบบจะ<b>ไม่สร้างซ้ำ</b> แต่จะเพิ่มช่องทางให้ตัวเดิม
+      </div></div>
+    </div>`;
+  }
+
+  /* ---- ขั้นที่ 2: จับคู่คอลัมน์ + ตรวจก่อนนำเข้า ---- */
+  if (I.step === 'map') {
+    const header = I.rows[I.head] || [];
+    const preview = I.rows.slice(I.head + 1, I.head + 4);
+    const plan = I.plan;
+    const total = plan.create.length + plan.update.length;
+
+    return `
+    <div class="row" style="margin:20px 0 4px">
+      <button class="btn sm ghost" id="impBack">← เริ่มใหม่</button>
+      <div class="sp"></div>
+      <span class="pill t-gray">${esc(I.file)}</span>
+      <span class="pill ${I.platform === 'none' ? 't-gray' : 't-green'}">
+        ${I.platform === 'none' ? 'ไม่ระบุช่องทาง' : CHANNELS[I.platform].label}</span>
+    </div>
+
+    <div class="sec-title">จับคู่คอลัมน์</div>
+    <div class="card pad">
+      <p style="margin:0 0 14px;font-size:13px;color:var(--ink-3)">
+        ระบบเดาให้แล้วจากหัวตาราง ถ้าไม่ตรงเปลี่ยนเองได้
+      </p>
+      <div class="grid g2">
+        ${IMP_FIELDS.map(([f, label, req]) => `
+          <label class="f"><span>${label}${req ? ' <em>*</em>' : ' <i>(ไม่บังคับ)</i>'}</span>
+            <select class="inp" data-impmap="${f}">
+              <option value="-1">— ไม่ใช้ —</option>
+              ${header.map((h, i) =>
+                `<option value="${i}"${I.map[f] === i ? ' selected' : ''}>${esc(h || 'คอลัมน์ ' + (i + 1))}</option>`).join('')}
+            </select></label>`).join('')}
+      </div>
+      <div class="hr"></div>
+      <div style="font-size:12.5px;font-weight:600;color:var(--ink-2);margin-bottom:8px">ตัวอย่าง 3 แถวแรก</div>
+      <div style="overflow-x:auto"><table class="tbl">
+        <thead><tr>${IMP_FIELDS.map(([, l]) => `<th>${l}</th>`).join('')}</tr></thead>
+        <tbody>${preview.map((r) => `<tr style="cursor:default">${IMP_FIELDS.map(([f]) =>
+          `<td class="${f === 'name' ? '' : 'mono'}">${esc(I.map[f] >= 0 ? (r[I.map[f]] || '') : '') || '<span style="color:var(--ink-4)">—</span>'}</td>`).join('')}</tr>`).join('')}
+        </tbody></table></div>
+      <div class="hint" style="margin-top:10px">แถวหัวตารางคือแถวที่ ${I.head + 1} ·
+        <button class="btn sm ghost" id="impHeadUp" style="padding:2px 8px">เลื่อนขึ้น</button>
+        <button class="btn sm ghost" id="impHeadDn" style="padding:2px 8px">เลื่อนลง</button></div>
+    </div>
+
+    <div class="sec-title">สรุปก่อนนำเข้า</div>
+    <div class="grid g4">
+      <div class="stat"><div class="n" style="color:var(--green)">${plan.create.length}</div>
+        <div class="l">เพิ่มใหม่</div></div>
+      <div class="stat"><div class="n" style="color:var(--blue)">${plan.update.length}</div>
+        <div class="l">มีอยู่แล้ว — อัปเดตช่องทาง</div></div>
+      <div class="stat"><div class="n" style="color:var(--ink-4)">${plan.skipped + plan.dupInFile}</div>
+        <div class="l">ข้าม (ไม่มีรหัส/ซ้ำในไฟล์)</div></div>
+      <div class="stat"><div class="n" style="color:${plan.longBarcode ? 'var(--amber)' : 'var(--ink-4)'}">${plan.longBarcode}</div>
+        <div class="l">บาร์โค้ดยาวเกิน ${BARCODE_MAX}</div></div>
+    </div>
+
+    ${plan.update.length ? `<div class="sec-title">ตัวอย่างรายการที่จะอัปเดต</div>
+    <div class="card">${plan.update.slice(0, 5).map((r) => `<div class="item" style="cursor:default">
+      <div class="item-main"><b>${esc(r.existing.name)}</b>
+        <small class="mono">${esc(r.existing.code)} · จับคู่จาก${esc(r.by)}</small></div>
+      <span class="pill t-blue">+ ${I.platform === 'none' ? 'ข้อมูล' : CHANNELS[I.platform].label}</span>
+    </div>`).join('')}</div>` : ''}
+
+    ${plan.longBarcode ? `<div class="lock" style="margin-top:14px"><b>⚠</b><div>
+      มีบาร์โค้ด ${plan.longBarcode} รายการยาวเกิน ${BARCODE_MAX} หลัก —
+      จะไม่เก็บลงช่องบาร์โค้ด แต่บันทึกไว้ในหมายเหตุของสินค้าให้แทน</div></div>` : ''}
+
+    <div class="row end actions" style="margin-top:18px;gap:8px">
+      <div class="sp"></div>
+      <button class="btn" id="impBack2">ยกเลิก</button>
+      <button class="btn primary" id="impRun"${total && !I.busy ? '' : ' disabled'}>
+        ${I.busy ? 'กำลังนำเข้า…' : `นำเข้า ${total} รายการ`}</button>
+    </div>`;
+  }
+
+  /* ---- ขั้นที่ 3: เสร็จแล้ว ---- */
+  const R = I.result;
+  return `
+  <div class="sec-title">นำเข้าเสร็จแล้ว</div>
+  <div class="card pad">
+    <div style="font-size:19px;font-weight:700;margin-bottom:14px">
+      นำเข้าจาก ${esc(R.src)} เรียบร้อย</div>
+    <div class="kv"><span>เพิ่มสินค้าใหม่</span><b style="color:var(--green)">${R.created}</b></div>
+    <div class="kv"><span>อัปเดตสินค้าเดิม</span><b style="color:var(--blue)">${R.updated}</b></div>
+    <div class="kv"><span>ข้าม (ไม่มีรหัสและบาร์โค้ด)</span><b>${R.skipped}</b></div>
+    <div class="kv"><span>ข้าม (ซ้ำกันในไฟล์)</span><b>${R.dupInFile}</b></div>
+    <div class="kv"><span>บาร์โค้ดยาวเกิน ${BARCODE_MAX} หลัก</span><b>${R.longBarcode}</b></div>
+    <div class="hint" style="margin-top:14px">
+      ข้อมูลถูกซิงก์ขึ้นฐานกลางให้อัตโนมัติ · ถ้าผลลัพธ์ไม่ตรงใจ
+      กู้คืนได้จากไฟล์สำรองที่ระบบเก็บไว้ก่อนนำเข้า
+    </div>
+    <div class="row" style="margin-top:16px">
+      <button class="btn primary" id="impDone">ดูรายการสินค้า</button>
+      <button class="btn" id="impAgain">นำเข้าอีกไฟล์</button>
+    </div>
+  </div>`;
+}
+
+/* ============================================================
    ส่วนที่ 14 — หน้าจอ: ตั้งค่า
    ============================================================ */
 function viewSet() {
@@ -1309,6 +1572,8 @@ function viewSet() {
 
   <div class="sec-title">ข้อมูล</div>
   <div class="card pad">
+    <button class="btn primary block" id="btnImpFile" style="margin-bottom:12px;padding:14px">
+      นำเข้าสินค้าจากไฟล์ Shopee / Lazada</button>
     <div class="grid g2">
       <button class="btn" id="btnExport2">ส่งออก Excel / CSV</button>
       <button class="btn" id="btnJson">สำรองข้อมูล (.json)</button>
@@ -1451,6 +1716,7 @@ function render() {
   else if (S.tab === 'detail') v.innerHTML = viewDetail();
   else if (S.tab === 'pending') v.innerHTML = viewPending();
   else if (S.tab === 'inbox') v.innerHTML = viewInbox();
+  else if (S.tab === 'import') v.innerHTML = viewImport();
   else if (S.tab === 'dash') v.innerHTML = viewDash();
   else if (S.tab === 'set') v.innerHTML = viewSet();
 
@@ -1600,6 +1866,65 @@ function bind() {
       saveSet(); render();
     };
   });
+
+  /* ---- นำเข้าไฟล์ ---- */
+  const bif = $('#btnImpFile'); if (bif) bif.onclick = newImport;
+  const bif2 = $('#btnImpFile2'); if (bif2) bif2.onclick = newImport;
+  $$('[data-impch]').forEach((b) => {
+    b.onclick = () => { S.imp.platform = b.dataset.impch; render(); };
+  });
+  const ip = $('#impPick');
+  if (ip) ip.onclick = () => $('#impFile').click();
+  const ifl = $('#impFile');
+  if (ifl) ifl.onchange = async () => {
+    const f = ifl.files[0];
+    if (!f) return;
+    const msg = $('#impMsg');
+    msg.textContent = 'กำลังอ่านไฟล์…';
+    msg.className = 'hint';
+    try {
+      const rows = await readTable(f);
+      if (!rows.length) throw new Error('ไม่พบข้อมูลในไฟล์');
+      S.imp.rows = rows;
+      S.imp.file = f.name;
+      S.imp.head = findHeaderRow(rows);
+      S.imp.map = guessColumns(rows[S.imp.head] || []);
+      if (S.imp.map.code < 0 && S.imp.map.barcode < 0) {
+        msg.innerHTML = 'อ่านไฟล์ได้ แต่เดาคอลัมน์ไม่ออก — เลือกเองในหน้าถัดไปได้';
+      }
+      S.imp.plan = buildPlan();
+      S.imp.step = 'map';
+      render();
+    } catch (e) {
+      msg.textContent = e.message;
+      msg.className = 'hint err';
+    }
+  };
+  $$('[data-impmap]').forEach((sel) => {
+    sel.onchange = () => {
+      S.imp.map[sel.dataset.impmap] = +sel.value;
+      S.imp.plan = buildPlan();
+      render();
+    };
+  });
+  const ihu = $('#impHeadUp');
+  if (ihu) ihu.onclick = () => {
+    if (S.imp.head <= 0) return;
+    S.imp.head--; S.imp.map = guessColumns(S.imp.rows[S.imp.head] || []);
+    S.imp.plan = buildPlan(); render();
+  };
+  const ihd = $('#impHeadDn');
+  if (ihd) ihd.onclick = () => {
+    if (S.imp.head >= S.imp.rows.length - 2) return;
+    S.imp.head++; S.imp.map = guessColumns(S.imp.rows[S.imp.head] || []);
+    S.imp.plan = buildPlan(); render();
+  };
+  const irun = $('#impRun'); if (irun) irun.onclick = runImport;
+  [['#impBack', 'set'], ['#impBack2', 'set'], ['#impDone', 'list']].forEach(([id, tab]) => {
+    const el = $(id);
+    if (el) el.onclick = () => { S.imp = null; S.tab = tab; render(); };
+  });
+  const iag = $('#impAgain'); if (iag) iag.onclick = newImport;
 
   /* ---- เพิ่งลงขาย ---- */
   $$('[data-recent]').forEach((b) => {

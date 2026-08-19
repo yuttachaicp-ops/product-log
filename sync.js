@@ -130,14 +130,18 @@ async function sbPush() {
 
   if (!rows.length) return 0;
 
-  const res = await fetch(SB_URL(SB.table), {
-    method: 'POST',
-    headers: Object.assign(SB_H(), { Prefer: 'resolution=merge-duplicates,return=minimal' }),
-    body: JSON.stringify(rows),
-  });
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`ส่งข้อมูลไม่สำเร็จ (${res.status}) ${t.slice(0, 120)}`);
+  /* ส่งทีละก้อน กันคำขอใหญ่เกินตอนนำเข้าไฟล์เป็นพันรายการ */
+  const CHUNK = 150;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const res = await fetch(SB_URL(SB.table), {
+      method: 'POST',
+      headers: Object.assign(SB_H(), { Prefer: 'resolution=merge-duplicates,return=minimal' }),
+      body: JSON.stringify(rows.slice(i, i + CHUNK)),
+    });
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error(`ส่งข้อมูลไม่สำเร็จ (${res.status}) ${t.slice(0, 120)}`);
+    }
   }
   DB.meta.pushedAt = nowISO();
   return rows.length;
