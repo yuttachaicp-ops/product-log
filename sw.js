@@ -6,7 +6,7 @@
                 (อัปเดตเว็บแล้วเห็นทันที ไม่ต้องรีเฟรชซ้ำ)
    - ออฟไลน์ หรือเน็ตช้าเกิน 4 วิ → ใช้ของในแคชแทน
    ============================================================ */
-const CACHE = 'product-log-v7';
+const CACHE = 'product-log-v8';
 const FILES = [
   './', './index.html', './config.js', './sync.js', './app.js', './manifest.json',
   './icon-192.png', './icon-512.png',

@@ -68,6 +68,7 @@ const S = {
   fCategory: 'all',
   fArchived: 'active',
   sort: 'new',
+  recentDays: 30,     // ช่วงเวลาของ "เพิ่งลงขาย" บน Dashboard
   bulk: false,        // โหมดเลือกหลายรายการในหน้ารอคอนเฟิร์ม
   sel: new Set(),
   draft: null,        // สินค้าที่กำลังกรอก/แก้ไข
@@ -1110,12 +1111,118 @@ function viewDash() {
     </div>
   </div>
 
+  ${viewRecent()}
+
   <div class="sec-title">บันทึกล่าสุด</div>
   <div class="card">
     ${act.slice(0, 8).length ? act.slice()
       .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).slice(0, 8)
       .map(productRow).join('') : '<div class="empty">ยังไม่มีข้อมูล</div>'}
   </div>`;
+}
+
+/* ============================================================
+   ส่วนที่ 13.5 — สินค้าที่เพิ่งลงขาย
+   ดึงจากวันที่กด "ลงขายแล้ว" ของแต่ละช่องทาง
+   ============================================================ */
+const RECENT_RANGES = [[7, '7 วัน'], [30, '30 วัน'], [90, '90 วัน'], [0, 'ทั้งหมด']];
+
+function recentListed(days) {
+  const cut = days ? Date.now() - days * 86400000 : 0;
+  const out = [];
+
+  DB.products.forEach((p) => {
+    const chans = CHANNEL_KEYS
+      .filter((k) => (p.channels?.[k]?.status || '') === 'listed')
+      .map((k) => ({ k, at: p.channels[k].listedAt || '', url: p.channels[k].url || '' }));
+    if (!chans.length) return;
+
+    /* ลงขายช่องทางล่าสุดเมื่อไหร่ */
+    const last = chans.reduce((m, c) => (c.at > m ? c.at : m), '');
+    if (cut && (!last || new Date(last).getTime() < cut)) return;
+    out.push({ p, chans, last });
+  });
+
+  out.sort((a, b) => (b.last || '').localeCompare(a.last || ''));
+  return out;
+}
+
+function chanTag(c) {
+  return `<span class="pill t-green" title="ลงขาย ${fmtDateTime(c.at)}">
+    <b class="ch-${c.k}">${CHANNELS[c.k].label}</b> · ${fmtDate(c.at)}</span>`;
+}
+
+function viewRecent() {
+  const days = S.recentDays;
+  const rows = recentListed(days);
+  const label = (RECENT_RANGES.find(([d]) => d === days) || [, ''])[1];
+
+  return `
+  <div class="row" style="margin:26px 0 10px;align-items:flex-end">
+    <div class="sec-title" style="margin:0">เพิ่งลงขาย · ${rows.length} รายการ</div>
+    <div class="sp"></div>
+    <div class="seg">
+      ${RECENT_RANGES.map(([d, t]) =>
+        `<button data-recent="${d}" class="${days === d ? 'on' : ''}">${t}</button>`).join('')}
+    </div>
+    ${rows.length ? '<button class="btn sm" id="btnExpRecent">ส่งออก CSV</button>' : ''}
+  </div>
+
+  ${!rows.length ? `<div class="card"><div class="empty">
+      <b>ยังไม่มีสินค้าที่ลงขายใน ${esc(label)}</b>
+      รายการจะขึ้นที่นี่เมื่อกดปุ่ม “ลงขายแล้ว” ในหน้าสินค้า</div></div>`
+  : isDesk() ? `<div class="card" style="overflow:hidden"><table class="tbl">
+      <thead><tr>
+        <th style="width:140px">รหัสสินค้า</th>
+        <th style="width:140px">บาร์โค้ด</th>
+        <th>ชื่อสินค้า</th>
+        <th style="width:340px">ลงขายในแพลตฟอร์ม</th>
+        <th style="width:110px" class="num">ล่าสุด</th>
+      </tr></thead><tbody>
+      ${rows.map(({ p, chans, last }) => `<tr data-open="${p.id}">
+        <td class="mono">${esc(p.code)}</td>
+        <td class="mono" style="color:var(--ink-3)">${esc(p.barcode || '—')}</td>
+        <td class="nm">${esc(p.name)}</td>
+        <td><div class="chips">${chans.map(chanTag).join('')}</div></td>
+        <td class="num">${fmtAgo(last)}</td>
+      </tr>`).join('')}
+      </tbody></table></div>`
+  : `<div class="card">${rows.map(({ p, chans, last }) => `<div class="item" data-open="${p.id}">
+      <div class="item-main">
+        <b>${esc(p.name)}</b>
+        <small class="mono">${esc(p.code)}${p.barcode ? ' · ' + esc(p.barcode) : ' · ไม่มีบาร์โค้ด'}</small>
+        <div class="chips" style="margin-top:6px">${chans.map(chanTag).join('')}</div>
+      </div>
+      <small style="color:var(--ink-4);font-size:11.5px;flex:none">${fmtAgo(last)}</small>
+    </div>`).join('')}</div>`}`;
+}
+
+function exportRecent() {
+  const rows = recentListed(S.recentDays);
+  if (!rows.length) return toast('ไม่มีข้อมูลให้ส่งออก', 'err');
+  const head = ['รหัสสินค้า', 'บาร์โค้ด', 'ชื่อสินค้า', 'ลงขายในแพลตฟอร์ม',
+    ...CHANNEL_KEYS.map((k) => `วันที่ลง ${CHANNELS[k].label}`),
+    ...CHANNEL_KEYS.map((k) => `ลิงก์ ${CHANNELS[k].label}`), 'ลงขายล่าสุด'];
+  const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+
+  const body = rows.map(({ p, chans, last }) => [
+    p.code, p.barcode, p.name,
+    chans.map((c) => CHANNELS[c.k].label).join(' + '),
+    ...CHANNEL_KEYS.map((k) => {
+      const c = chans.find((x) => x.k === k);
+      return c ? fmtDate(c.at) : '';
+    }),
+    ...CHANNEL_KEYS.map((k) => {
+      const c = chans.find((x) => x.k === k);
+      return c ? c.url : '';
+    }),
+    fmtDate(last),
+  ].map(q).join(','));
+
+  const tag = S.recentDays ? `${S.recentDays}d` : 'all';
+  download(`listed-${tag}-${todayISO()}.csv`, [head.map(q).join(','), ...body].join('\r\n'),
+    'text/csv;charset=utf-8');
+  toast(`ส่งออก ${rows.length} รายการแล้ว`, 'ok');
 }
 
 /* ============================================================
@@ -1493,6 +1600,12 @@ function bind() {
       saveSet(); render();
     };
   });
+
+  /* ---- เพิ่งลงขาย ---- */
+  $$('[data-recent]').forEach((b) => {
+    b.onclick = () => { S.recentDays = +b.dataset.recent; render(); };
+  });
+  const ber = $('#btnExpRecent'); if (ber) ber.onclick = exportRecent;
 
   /* ---- สมุดบาร์โค้ดค้าง ---- */
   const ibc = $('#ibCode');
